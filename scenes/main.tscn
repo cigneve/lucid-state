@@ -1,15 +1,16 @@
-[gd_scene load_steps=7 format=3 uid="uid://dsnndmqfe6nsi"]
+[gd_scene load_steps=8 format=3 uid="uid://dsnndmqfe6nsi"]
 
 [ext_resource type="Script" uid="uid://6jcpp5i8ostn" path="res://scripts/main.gd" id="1_main"]
 [ext_resource type="PackedScene" path="res://scenes/background.tscn" id="2_background"]
-[ext_resource type="PackedScene" uid="uid://ddpps1qp1k21y" path="res://levels/level_0.tscn" id="2_tefeu"]
+[ext_resource type="PackedScene" path="res://levels/level_0.tscn" id="lvl0"]
+[ext_resource type="PackedScene" uid="uid://cjbhagv6hlcyh" path="res://levels/level_1.tscn" id="lvl1"]
 [ext_resource type="PackedScene" path="res://scenes/player.tscn" id="3_player"]
 [ext_resource type="PackedScene" path="res://scenes/ui/hud.tscn" id="4_hud"]
-[ext_resource type="PackedScene" uid="uid://46smr35xeuhv" path="res://levels/level_2.tscn" id="level_3"]
+[ext_resource type="PackedScene" uid="uid://46smr35xeuhv" path="res://levels/level_2.tscn" id="lvl2"]
 
 [node name="Main" type="Node"]
 script = ExtResource("1_main")
-levels = Array[PackedScene]([ExtResource("2_tefeu"), ExtResource("level_3"), ExtResource("level_3")])
+levels = Array[PackedScene]([ExtResource("lvl0"), ExtResource("lvl1"), ExtResource("lvl2")])
 
 [node name="Background" parent="." instance=ExtResource("2_background")]
 

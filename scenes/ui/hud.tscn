@@ -52,6 +52,14 @@ polygon = PackedVector2Array(4, 0, 3.696, 1.531, 2.828, 2.828, 1.531, 3.696, 0, 
 position = Vector2(56, 22)
 polygon = PackedVector2Array(4, 0, 3.696, 1.531, 2.828, 2.828, 1.531, 3.696, 0, 4, -1.531, 3.696, -2.828, 2.828, -3.696, 1.531, -4, 0, -3.696, -1.531, -2.828, -2.828, -1.531, -3.696, 0, -4, 1.531, -3.696, 2.828, -2.828, 3.696, -1.531)
 
+[node name="LockRing" type="Line2D" parent="FormDots"]
+visible = false
+position = Vector2(24, 22)
+points = PackedVector2Array(7, 0, 6.062, 3.5, 3.5, 6.062, 0, 7, -3.5, 6.062, -6.062, 3.5, -7, 0, -6.062, -3.5, -3.5, -6.062, 0, -7, 3.5, -6.062, 6.062, -3.5)
+closed = true
+width = 2.0
+default_color = Color(1, 0.804, 0.471, 0.9)
+
 [node name="MirrorMark" type="Node2D" parent="."]
 visible = false
 position = Vector2(78, 22)

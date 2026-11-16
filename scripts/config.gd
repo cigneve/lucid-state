@@ -19,16 +19,23 @@ const HALF_AT := 33.0          # curse >= this -> HALF
 const GHOST_AT := 66.0         # curse >= this -> GHOST
 # In the mirror world light and shadow swap their effect.
 
-# Player
+# Player. SMW-style momentum: gradual acceleration, big skids, momentum in the air.
 const PLAYER_W := 20.0
 const PLAYER_H := 28.0
 const RUN_SPEED := 260.0
-const ACCEL := 2400.0
-const FRICTION := 2200.0
-const GRAVITY := 1800.0
-const JUMP_SPEED := 620.0
-const DOUBLE_JUMP_SPEED := 600.0   # HALF only
-const WALL_SLIDE_SPEED := 120.0    # SOLID only
+const ACCEL_GROUND := 1600.0      # ground acceleration toward RUN_SPEED
+const ACCEL_AIR := 700.0          # air acceleration (weaker control)
+const SKID_DECEL := 2400.0        # hard brake when turning on the ground
+const TURN_ACCEL_AIR := 600.0     # gentler turn in the air
+const DECEL_GROUND := 1500.0      # no input on the ground: stop quickly (slides a bit)
+const DECEL_AIR := 200.0          # no input in the air: keep momentum
+# Jump arc: floatier while held, heavier once released or falling (short hop).
+const JUMP_SPEED := 640.0
+const GRAVITY_JUMP := 2200.0      # rising while jump is held
+const GRAVITY_FALL := 3600.0      # falling, or rising after the jump is released
+const JUMP_CUT_MIN := 200.0       # upward speed clamped once when jump is released early
+const DOUBLE_JUMP_SPEED := 600.0  # HALF only
+const WALL_SLIDE_SPEED := 120.0   # SOLID only
 const WALL_JUMP_X := 300.0
 const WALL_JUMP_Y := 600.0
 const DASH_SPEED := 620.0
@@ -37,10 +44,30 @@ const DASH_COOLDOWN := 0.45
 const MAX_FALL := 900.0
 const COYOTE_TIME := 0.1
 const JUMP_BUFFER := 0.12
-const GHOST_GRAVITY_SCALE := 0.55
-const GHOST_MAX_FALL := 380.0
-const GHOST_JUMP_SPEED := 480.0
+const GHOST_GRAVITY_SCALE := 0.8
+const GHOST_MAX_FALL := 620.0
+const GHOST_JUMP_SPEED := 440.0
 const GHOST_DASH_SCALE := 1.5
+
+# Grapple (HALF only, 8-way, aimed in the held movement direction).
+const GRAPPLE_RANGE := 300.0     # how far the hook can reach a hook block
+const HOOK_SPEED := 2200.0       # speed the hook travels (px/s)
+const PULL_SPEED := 900.0        # initial pull speed toward the anchor
+const PULL_ACCEL := 2600.0       # the pull ramps up the longer you hold on
+const MAX_PULL := 1400.0
+const GRAPPLE_STOP_DIST := 18.0  # release distance from the anchor
+const GRAPPLE_KEEP := 0.55       # share of pull velocity kept after release
+const HOOK_COOLDOWN := 0.2
+const GRAPPLE_CONE := 0.85       # cos: how close to the aim the target must be
+
+# Melee (SOLID only, 8-way, aimed in the held movement direction).
+const MELEE_RANGE := 80.0        # reach from the body centre toward the aim
+const MELEE_HALF_ANGLE := 0.9    # cone half-width (radians)
+const MELEE_COOLDOWN := 0.35
+const MELEE_KNOCKBACK := 500.0   # launch speed thrown back along the aim
+const MELEE_HITSTOP := 0.05      # extra cooldown on a hit
+const MELEE_LUNGE_TIME := 0.18   # how long the launch outranks gravity
+const MELEE_FX_TIME := 0.18      # the arc's on-screen lifetime
 
 # Timed platforms (phase A and phase B blink in opposite phases).
 const TIMED_PERIOD := 2.4      # seconds for one on/off cycle

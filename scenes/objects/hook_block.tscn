@@ -1,0 +1,20 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://scripts/objects/hook_block.gd" id="1_script"]
+
+[node name="HookBlock" type="Area2D"]
+collision_layer = 0
+collision_mask = 0
+script = ExtResource("1_script")
+
+[node name="Pad" type="Polygon2D" parent="."]
+position = Vector2(0, -16)
+color = Color(0.549, 0.941, 1, 0.28)
+polygon = PackedVector2Array(-13, -13, 13, -13, 13, 13, -13, 13)
+
+[node name="Ring" type="Line2D" parent="."]
+position = Vector2(0, -16)
+points = PackedVector2Array(7, 0, 6.062, 3.5, 3.5, 6.062, 0, 7, -3.5, 6.062, -6.062, 3.5, -7, 0, -6.062, -3.5, -3.5, -6.062, 0, -7, 3.5, -6.062, 6.062, -3.5)
+closed = true
+width = 2.0
+default_color = Color(0.549, 0.941, 1, 0.9)

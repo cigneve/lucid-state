@@ -7,6 +7,7 @@ extends CanvasLayer
 @onready var flash_rect: ColorRect = $Flash
 @onready var falling: Control = $Falling
 @onready var form_dots: Node2D = $FormDots
+@onready var lock_ring: Line2D = $FormDots/LockRing
 @onready var mirror_mark: Node2D = $MirrorMark
 @onready var debug_label: Label = $Debug
 @onready var message_label: Label = $Message
@@ -57,9 +58,15 @@ func _process(delta: float) -> void:
 	flash_rect.color.a = _flash * 0.6
 
 	# Three faint dots: which form you are in. No timer on purpose.
-	for i in form_dots.get_child_count():
-		var dot := form_dots.get_child(i) as CanvasItem
-		dot.modulate.a = 0.8 if i == Game.form else 0.15
+	form_dots.get_node("Solid").modulate.a = 0.8 if Game.form == Cfg.Form.SOLID else 0.15
+	form_dots.get_node("Half").modulate.a = 0.8 if Game.form == Cfg.Form.HALF else 0.15
+	form_dots.get_node("Ghost").modulate.a = 0.8 if Game.form == Cfg.Form.GHOST else 0.15
+	# A gate-locked form gets a ring around its dot.
+	lock_ring.visible = Game.form_lock >= 0
+	if Game.form_lock >= 0:
+		lock_ring.position = Vector2(24.0 + float(Game.form_lock) * 16.0, 22.0)
+		lock_ring.default_color = (Color(1.0, 0.804, 0.471, 0.9) if Game.form_lock == Cfg.Form.SOLID
+				else Color(0.549, 0.941, 1.0, 0.9))
 	mirror_mark.visible = Game.world == 1
 
 	_msg_time -= delta

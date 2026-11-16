@@ -55,8 +55,7 @@ func load_level(index: int) -> void:
 	Game.level_index = index
 	Game.reset_run()
 	
-	level = levels[0].instantiate() as Level
-	print(level.level_name)
+	level = levels[index].instantiate() as Level
 	world.add_child(level)
 	world.move_child(level, 0)
 	player.respawn(level.get_start(), level.get_bounds())

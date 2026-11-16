@@ -1,0 +1,25 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://scripts/objects/knockback_block.gd" id="1_script"]
+
+[node name="KnockbackBlock" type="Area2D"]
+collision_layer = 0
+collision_mask = 0
+script = ExtResource("1_script")
+
+[node name="Pad" type="Polygon2D" parent="."]
+position = Vector2(0, -16)
+color = Color(0.141, 0.102, 0.071, 1)
+polygon = PackedVector2Array(-14, -14, 14, -14, 14, 14, -14, 14)
+
+[node name="Ring" type="Line2D" parent="."]
+position = Vector2(0, -16)
+points = PackedVector2Array(-13, -13, 13, -13, 13, 13, -13, 13, -13, -13)
+width = 2.0
+default_color = Color(1, 0.706, 0.353, 0.85)
+
+[node name="Cross" type="Line2D" parent="."]
+position = Vector2(0, -16)
+points = PackedVector2Array(-8, 0, 8, 0, 0, 0, 0, -8, 0, 0, 0, 8)
+width = 2.0
+default_color = Color(1, 0.706, 0.353, 0.7)

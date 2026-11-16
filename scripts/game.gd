@@ -18,6 +18,7 @@ var curse: float = 0.0
 var form: int = Cfg.Form.SOLID
 var world: int = 0
 var door_open: bool = false      # true once every seal of the level is done
+var form_lock: int = -1          # -1 = none; a Cfg.Form value pins the form (gates)
 var race_on: bool = false        # the curse runs faster once a "race" level's door opens
 var level_time: float = 0.0
 var level_index: int = 1
@@ -45,6 +46,7 @@ func set_state(new_state: int) -> void:
 func reset_run() -> void:
 	curse = 0.0
 	door_open = false
+	form_lock = -1
 	race_on = false
 	level_time = 0.0
 	end_dialogue()

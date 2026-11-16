@@ -100,3 +100,21 @@ shape = SubResource("RectangleShape2D_feet")
 position = Vector2(60, 0)
 limit_smoothed = true
 position_smoothing_enabled = true
+
+[node name="Hook" type="Line2D" parent="." unique_id=721286122]
+visible = false
+z_index = 1
+width = 2.0
+default_color = Color(0.549, 0.941, 1, 0.8)
+
+[node name="HookTip" type="Polygon2D" parent="." unique_id=95072253]
+visible = false
+z_index = 1
+color = Color(0.549, 0.941, 1, 0.95)
+polygon = PackedVector2Array(4, 0, 3.464, 2, 2, 3.464, 0, 4, -2, 3.464, -3.464, 2, -4, 0, -3.464, -2, -2, -3.464, 0, -4, 2, -3.464, 3.464, -2)
+
+[node name="MeleeArc" type="Line2D" parent="." unique_id=1609206938]
+visible = false
+z_index = 1
+width = 4.0
+default_color = Color(0.549, 0.941, 1, 0.7)

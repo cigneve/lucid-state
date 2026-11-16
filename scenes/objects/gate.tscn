@@ -1,0 +1,26 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://scripts/objects/gate.gd" id="1_script"]
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_gate"]
+size = Vector2(32, 32)
+
+[node name="Gate" type="Area2D"]
+collision_layer = 0
+collision_mask = 1024
+script = ExtResource("1_script")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+position = Vector2(0, -16)
+shape = SubResource("RectangleShape2D_gate")
+
+[node name="Glow" type="Polygon2D" parent="."]
+position = Vector2(0, -16)
+color = Color(1, 0.804, 0.471, 0.28)
+polygon = PackedVector2Array(-16, -16, 16, -16, 16, 16, -16, 16)
+
+[node name="Line" type="Line2D" parent="."]
+position = Vector2(0, -16)
+points = PackedVector2Array(0, -14, 0, 14)
+width = 2.0
+default_color = Color(1, 0.804, 0.471, 0.9)

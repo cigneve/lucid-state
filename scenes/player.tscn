@@ -1,0 +1,102 @@
+[gd_scene format=3 uid="uid://ce51mdr1egyga"]
+
+[ext_resource type="Script" uid="uid://ibfbgjrjisd1" path="res://scripts/player.gd" id="1_script"]
+[ext_resource type="Texture2D" uid="uid://b8sxqetb8ocgj" path="res://art/glow_soft.tres" id="2_soft"]
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_body"]
+size = Vector2(20, 28)
+
+[sub_resource type="Gradient" id="Gradient_wisp"]
+colors = PackedColorArray(1, 1, 1, 0.5, 1, 1, 1, 0)
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_core"]
+radius = 2.0
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_feet"]
+size = Vector2(16, 12)
+
+[node name="Player" type="CharacterBody2D" unique_id=488868196]
+collision_layer = 1024
+script = ExtResource("1_script")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="." unique_id=1114432614]
+shape = SubResource("RectangleShape2D_body")
+
+[node name="Glow" type="Sprite2D" parent="." unique_id=755497329]
+modulate = Color(0.922, 0.902, 1, 0.5)
+scale = Vector2(0.44, 0.44)
+texture = ExtResource("2_soft")
+
+[node name="Wisps" type="CPUParticles2D" parent="." unique_id=99759054]
+amount = 24
+lifetime = 1.6
+lifetime_randomness = 0.5
+emission_shape = 3
+emission_rect_extents = Vector2(10, 14)
+direction = Vector2(0, -1)
+spread = 25.0
+gravity = Vector2(0, 0)
+initial_velocity_min = 20.0
+initial_velocity_max = 60.0
+scale_amount_min = 2.0
+scale_amount_max = 2.0
+color_ramp = SubResource("Gradient_wisp")
+
+[node name="DashBurst" type="CPUParticles2D" parent="." unique_id=7996033]
+emitting = false
+one_shot = true
+explosiveness = 1.0
+lifetime_randomness = 0.4
+emission_shape = 3
+emission_rect_extents = Vector2(10, 14)
+direction = Vector2(0, -1)
+spread = 25.0
+gravity = Vector2(0, 0)
+initial_velocity_min = 20.0
+initial_velocity_max = 60.0
+scale_amount_min = 2.0
+scale_amount_max = 2.0
+color_ramp = SubResource("Gradient_wisp")
+
+[node name="Body" type="Polygon2D" parent="." unique_id=727704382]
+color = Color(0.922, 0.902, 1, 1)
+antialiased = true
+polygon = PackedVector2Array(4, -14, 6.296, -13.543, 8.243, -12.243, 9.543, -10.296, 10, -8, 10, 8, 9.543, 10.296, 8.243, 12.243, 6.296, 13.543, 4, 14, -4, 14, -6.296, 13.543, -8.243, 12.243, -9.543, 10.296, -10, 8, -10, -8, -9.543, -10.296, -8.243, -12.243, -6.296, -13.543, -4, -14)
+
+[node name="Eyes" type="Node2D" parent="." unique_id=1190047358]
+position = Vector2(1, 0)
+
+[node name="EyeL" type="Polygon2D" parent="Eyes" unique_id=461742552]
+color = Color(0.04, 0.04, 0.08, 1)
+polygon = PackedVector2Array(0, -6, 3, -6, 3, -2, 0, -2)
+
+[node name="EyeR" type="Polygon2D" parent="Eyes" unique_id=446441102]
+color = Color(0.04, 0.04, 0.08, 1)
+polygon = PackedVector2Array(5, -6, 8, -6, 8, -2, 5, -2)
+
+[node name="Core" type="Area2D" parent="." unique_id=1932103223]
+collision_layer = 0
+collision_mask = 4096
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Core" unique_id=878435266]
+shape = SubResource("CircleShape2D_core")
+
+[node name="Reach" type="Area2D" parent="." unique_id=1552027233]
+collision_layer = 0
+collision_mask = 2048
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Reach" unique_id=1531203281]
+shape = SubResource("RectangleShape2D_body")
+
+[node name="Hurtbox" type="Area2D" parent="." unique_id=1502936777]
+collision_layer = 0
+collision_mask = 512
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Hurtbox" unique_id=1888965978]
+position = Vector2(0, 8)
+shape = SubResource("RectangleShape2D_feet")
+
+[node name="Camera2D" type="Camera2D" parent="." unique_id=2118213861]
+position = Vector2(60, 0)
+limit_smoothed = true
+position_smoothing_enabled = true

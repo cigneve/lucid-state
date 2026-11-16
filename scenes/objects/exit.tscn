@@ -1,0 +1,29 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://scripts/objects/exit.gd" id="1_script"]
+[ext_resource type="GradientTexture2D" path="res://art/glow_bright.tres" id="2_glow"]
+[ext_resource type="CanvasItemMaterial" path="res://art/additive.tres" id="3_add"]
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_exit"]
+size = Vector2(32, 64)
+
+[node name="Exit" type="Area2D"]
+collision_layer = 0
+collision_mask = 1024
+script = ExtResource("1_script")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+position = Vector2(0, -32)
+shape = SubResource("RectangleShape2D_exit")
+
+[node name="Glow" type="Sprite2D" parent="."]
+modulate = Color(0.85, 0.8, 1, 0.8)
+material = ExtResource("3_add")
+position = Vector2(0, -32)
+texture = ExtResource("2_glow")
+
+[node name="Ring" type="Line2D" parent="."]
+points = PackedVector2Array(10, -32, 9.808, -25.757, 9.239, -19.754, 8.315, -14.222, 7.071, -9.373, 5.556, -5.393, 3.827, -2.436, 1.951, -0.615, 0, 0, -1.951, -0.615, -3.827, -2.436, -5.556, -5.393, -7.071, -9.373, -8.315, -14.222, -9.239, -19.754, -9.808, -25.757, -10, -32, -9.808, -38.243, -9.239, -44.246, -8.315, -49.778, -7.071, -54.627, -5.556, -58.607, -3.827, -61.564, -1.951, -63.385, 0, -64, 1.951, -63.385, 3.827, -61.564, 5.556, -58.607, 7.071, -54.627, 8.315, -49.778, 9.239, -44.246, 9.808, -38.243)
+closed = true
+width = 2.0
+default_color = Color(0.902, 0.863, 1, 1)

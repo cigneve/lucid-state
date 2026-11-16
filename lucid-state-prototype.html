@@ -1,0 +1,1807 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lucid State</title>
+  <style>
+    html, body { margin: 0; height: 100%; background: #030306; }
+    body { display: flex; align-items: center; justify-content: center; }
+    canvas {
+      display: block;
+      max-width: 100vw;
+      max-height: 100vh;
+      aspect-ratio: 960 / 544;
+      width: min(100vw, calc(100vh * 960 / 544));
+      image-rendering: auto;
+      outline: none;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="game" tabindex="0"></canvas>
+  <script>
+// Lucid State: tuning values. Change numbers here to adjust the feel.
+window.CONFIG = {
+  tile: 32,
+  viewWidth: 960,
+  viewHeight: 544,
+
+  // The curse goes from 0 (fully solid) to 100 (gone: you fall forever).
+  curse: {
+    baseRate: 1,          // per second, always (100 s from 0 to 100)
+    shadowRate: 12,       // per second inside a shadow zone (normal world)
+    lightRate: -25,       // per second inside a light zone (normal world)
+    raceBaseRate: 1.5,    // per second after all seals of a level are done (the run)
+    dashCost: 0,          // each dash (0 = dashing does not affect the curse)
+    // In the mirror world light and shadow swap their effect.
+    halfAt: 33,           // curse >= this -> HALF
+    ghostAt: 66,          // curse >= this -> GHOST
+  },
+
+  player: {
+    width: 20,
+    height: 28,
+    runSpeed: 260,
+    // Momentum (SMW-like): brisk on the ground, floaty in the air.
+    accelGround: 1500,      // ground acceleration toward runSpeed
+    accelAir: 900,          // air acceleration (weaker control)
+    skidDecel: 2200,        // braking force while turning on the ground
+    frictionGround: 2200,   // decel with no input on the ground (stops quickly)
+    frictionAir: 250,       // decel with no input in the air (keep momentum)
+    walkSpeed: 130,         // skid only above this speed
+    gravity: 2600,          // base gravity (px/s^2)
+    // SMW-style asymmetric jump arc: snappy rise, faster fall, terminal-ish speed.
+    jumpSpeed: 640,         // ~2.4 tiles high
+    gravityHoldLow: 0.8,    // gravity scale at the apex while jump is held
+    gravityHoldHigh: 1.15,  // gravity scale at the apex when jump is not held
+    fallGravityScale: 1.6,  // extra gravity while falling
+    jumpCutMin: 260,        // upward speed clamped when the jump is released early
+    doubleJumpSpeed: 600,   // HALF only
+    wallSlideSpeed: 120,    // SOLID only
+    wallJumpX: 300,
+    wallJumpY: 600,
+    dashSpeed: 620,
+    dashTime: 0.15,
+    dashCooldown: 0.45,
+    maxFall: 900,
+    coyoteTime: 0.1,
+    jumpBuffer: 0.12,
+    ghostGravityScale: 0.8,
+    ghostMaxFall: 620,
+    ghostJumpSpeed: 440,
+    ghostDashScale: 1.5,
+  },
+
+  // Melee (opaque only, 8-way, aimed in the held move direction).
+  melee: {
+    range: 46,            // reach from the body edge toward the aim direction
+    halfAngle: 0.9,       // cone half-width in radians (~52 degrees each side)
+    cooldown: 0.35,
+    knockback: 720,       // impulse applied to knockback blocks (px/s)
+    hitStop: 0.05,        // seconds the player freezes on a hit
+    lungeSpeed: 560,      // lunge speed along the aim direction on an air hit
+    lungeTime: 0.18,      // how long the lunge outranks gravity (seconds)
+  },
+
+  // Grapple (half only, 8-way, aimed in the held move direction).
+  grapple: {
+    range: 300,
+    speed: 2200,          // hook travel speed (px/s)
+    pullSpeed: 900,       // initial pull speed toward the anchor
+    pullAccel: 2600,
+    maxPull: 1400,
+    stopDist: 18,         // release distance from the anchor
+    afterMomentum: 0.55,  // share of pull velocity kept after release
+  },
+
+  // Gate (form lock): passing through fixes the form until the next gate.
+  gate: {
+    lockTime: 0,          // 0 = lock until another gate is crossed
+  },
+
+  // Timed platforms (T and t blink in opposite phases).
+  timed: {
+    period: 2.4,          // seconds for one on/off cycle
+    onTime: 1.5,          // seconds lit (solid) in each cycle
+    warnTime: 0.45,       // flicker this long before switching off
+  },
+
+  heartbeat: {
+    slowInterval: 1.15,   // seconds between beats at curse 0
+    fastInterval: 0.32,   // at curse 100
+    minVolume: 0.15,
+    maxVolume: 0.9,
+  },
+};
+
+</script>
+  <script>
+// Lucid State: level data.
+// Each character is one 32x32 tile. Edit freely; every row must be the same length.
+//
+//  .  empty                     @  player start
+//  #  stone (blocks everyone, both worlds)
+//  |  bars: block only the SOLID state
+//  W  thick wall: blocks SOLID and HALF, a GHOST passes through
+//  ~  spectral bridge: only a GHOST can stand on it
+//  a  stone that exists only in the normal world
+//  b  stone that exists only in the mirror world
+//  D  door: blocks everyone until a plate is pressed
+//  P  pressure plate: only a SOLID body can press it
+//  L  light zone          S  shadow zone
+//  M  mirror (E: switch worlds)
+//  ^  spikes: kill anything that is not a ghost
+//  X  exit
+//  1  NPC that only sees you while you are SOLID
+//  2  NPC that only sees you while you are a GHOST
+//  K  lever: press E while not a ghost (a ghost's hand passes through)
+//  O  dead lamp: a GHOST's touch lights it
+//  l  dormant light zone: becomes a light zone once a lamp is lit
+//  T  timed platform (phase A)    t  timed platform (phase B)
+//     both are one-way: land on them from above while they glow
+//  h  grapple block: a HALF body shoots a hook at it (L) and is pulled in
+//  v  knockback block: a SOLID melee hit (L) launches it; it launches you back
+//  G  gate: crossing it locks your form until the next gate you cross;
+//     put 'q' left/right of the G to lock SOLID, 'z' to lock HALF
+//     (no marker = SOLID)
+//
+// Plates (P), levers (K) and lamps (O) are the level's seals. Doors (D) open
+// when every seal is done. With raceAfterSeals, the curse then speeds up.
+window.LEVELS = [];
+window.LEVELS.push({
+  name: 'İlk Dokunuş',
+  raceAfterSeals: true,
+  map: [
+    '########################################################################',
+    '##....................................................................##',
+    '##....................................................................##',
+    '##....................................................................##',
+    '##....................................................................##',
+    '##....................................................................##',
+    '##....................................................................##',
+    '##......................................hh............................##',
+    '##....................................................................##',
+    '##....................................................................##',
+    '##...........hh................zG.....................................##',
+    '##....................................................................##',
+    'LLL...................................................................##',
+    'LLL...................................................................##',
+    'LL@v.1...zG.........qG..v.....zG........qG....X.......................##',
+    '########################################################################',
+    '########################################################################',
+    '########################################################################',
+    '########################################################################',
+  ],
+  npcs: {
+    '1': {
+      name: 'Bekçi',
+      seesIn: ['solid', 'half', 'ghost'],
+      lines: [
+        'Yarı saydamken L ile elleriyle tutunduğun bir kanca atabilirsin.',
+        'Opakken L ile vuramazsın; düşmanına da, sana da savurur.',
+        'Kapılardan geçtiğinde halin oraya mıhlanır. Ölç biç, sonra adım at.',
+      ],
+    },
+  },
+});
+
+window.LEVELS.push({
+  name: 'Aynanın Eşiği',
+  map: [
+  '##................|..............#..........WW..................aa............##',
+  '##................|..............#..........WW..................aa............##',
+  '##................|..............D..........WW..................aa............##',
+  '##................|..............D..........WW....bbb...........aa............##',
+  '##................|.......LLLL...D..........WW..................aa............##',
+  '##................|.......LLLL...D..........WW..................aa............##',
+  '##................|.......LLLL...D..........WW..................aa............##',
+  '##................|.......LLPL...D..........WW..................aa............##',
+  '##..........SSSSS.|......############..SSSS.WW..................aa............##',
+  '##..........SSSSS.|......############..SSSS.WW...............SSSaa............##',
+  '##...LLLL...SSSSS.|......############..SSSS.WW...............SSSaabbbbbbb.....##',
+  '##...LLLL...SSSSS.|......############..SSSS.WW...............SSSaa............##',
+  '##...LLLL...SSSSS.|......############..SSSS.WW..............MSSSaa........X...##',
+  '##.@.LL1L...SSSSS.|......############..SSSS.WW............2.MSSSaa^^^^^^^.X...##',
+  '##############################################~~~~~~~~~~########################',
+  '##############################################..........########################',
+  '##############################################..........########################',
+  ],
+  npcs: {
+    '1': {
+      name: 'Bekçi',
+      seesIn: ['solid'],
+      lines: [
+        'Hâlâ buradasın... ama her nefeste biraz daha siliniyorsun.',
+        'Işık insanı bu dünyaya bağlar. Gölge ise çözer.',
+        'Parmaklıklar katı olanları tutar. Sen hep katı kalmayacaksın.',
+      ],
+    },
+    '2': {
+      name: 'Silik Kadın',
+      seesIn: ['ghost'],
+      lines: [
+        'Beni görebiliyorsan, çok yaklaşmışsın demektir.',
+        'Aynanın öte yanında her şey ters akar.',
+        'Orada ışık yakar, gölge sarar. Ama fazla sarılma: dikenler katıları sever.',
+      ],
+    },
+  },
+});
+
+window.LEVELS.push({
+  name: 'Üç Mühür',
+  raceAfterSeals: true,
+  map: [
+    '##.............................WW....WW......D................................##',
+    '##.............................WW....WW......D.......................#.....X..##',
+    '##.............................WW....WW......D.......................#.....X..##',
+    '##.............................WW....WW......D.......................#..########',
+    '##.............................WW....WW......D.......................#..#.....##',
+    '##.................######......WW....WW......D.......................#SS#.....##',
+    '##.................|....|......WW....WW......D.......................#SS#.....##',
+    '##.................|....|......WW....WW......D.......................#..#.....##',
+    '##............SSSS.|....|.SSSS.WW....WW......D.......................#..#.....##',
+    '##LLLL........SSSS.|....|.SSSS.WW....WW.llll.D.............SSS.......#..#.....##',
+    '##LLLL........SSSS.|....|.SSSS.WW....WW.llll.D.............SSS..........#.....##',
+    '##LLLL....P...SSSS.|....|.SSSS.WW....WW.llll.D.............SSS..........#.....##',
+    '##LLLL...###..SSSS.|....|.SSSS.WW....WW.llll.D.||..TT..tt..|||..TT.######.....##',
+    '##L@LL1..###..SSSS.|..K.|.SSSS.WW.O.2WW.llll.D.....................######.....##',
+    '##############################################.....................#############',
+    '##############################################.....................#############',
+    '##############################################.....................#############',
+  ],
+  npcs: {
+    '1': {
+      name: 'Bekçi',
+      seesIn: ['solid'],
+      lines: [
+        'Kapıda üç mühür var. Her biri seni başka bir hâlde ister.',
+        'Biri ağırlık ister. Biri ince bir el. Biri hiç olmayan bir dokunuş.',
+        'Kapı açıldığında zaman hızlanır. Katı kal, gölgeden kaç.',
+      ],
+    },
+    '2': {
+      name: 'Silik Kadın',
+      seesIn: ['ghost'],
+      lines: [
+        'Bu lamba yıllardır sönük. Sadece bizim gibilerin eli ona yeter.',
+        'Yakarsan, kapının önünde seni yeniden tutacak bir ışık doğar.',
+        'Ama önce öteki mühürleri bitir. Yolun sonu katıları sever.',
+      ],
+    },
+  },
+});
+
+</script>
+  <script>
+// Lucid State: synthesized sound (no audio files needed).
+window.Sound = (function () {
+  let ctx = null;
+  let master = null;
+
+  function init() {
+    if (ctx) { if (ctx.state === 'suspended') ctx.resume(); return; }
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    ctx = new AC();
+    master = ctx.createGain();
+    master.gain.value = 0.8;
+    master.connect(ctx.destination);
+  }
+
+  function thump(when, volume, freq) {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(freq, when);
+    osc.frequency.exponentialRampToValueAtTime(freq * 0.5, when + 0.12);
+    gain.gain.setValueAtTime(0.0001, when);
+    gain.gain.exponentialRampToValueAtTime(volume, when + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.0001, when + 0.16);
+    osc.connect(gain).connect(master);
+    osc.start(when);
+    osc.stop(when + 0.2);
+  }
+
+  // One "lub-dub".
+  function heartbeat(volume) {
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    thump(t, volume, 70);
+    thump(t + 0.14, volume * 0.7, 58);
+  }
+
+  function blip(freq, dur, volume, type) {
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = type || 'triangle';
+    osc.frequency.setValueAtTime(freq, t);
+    gain.gain.setValueAtTime(volume, t);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    osc.connect(gain).connect(master);
+    osc.start(t);
+    osc.stop(t + dur + 0.05);
+  }
+
+  function sweep(from, to, dur, volume) {
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(from, t);
+    osc.frequency.exponentialRampToValueAtTime(to, t + dur);
+    gain.gain.setValueAtTime(volume, t);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    osc.connect(gain).connect(master);
+    osc.start(t);
+    osc.stop(t + dur + 0.05);
+  }
+
+  return {
+    init,
+    heartbeat,
+    jump: () => blip(420, 0.08, 0.08),
+    dash: () => sweep(900, 200, 0.18, 0.08),
+    stateUp: () => sweep(300, 900, 0.5, 0.1),     // fading further
+    stateDown: () => sweep(900, 300, 0.5, 0.1),   // becoming more solid
+    mirror: () => { sweep(200, 1600, 0.6, 0.1); sweep(1600, 200, 0.6, 0.06); },
+    plate: () => blip(160, 0.3, 0.2, 'square'),
+    die: () => sweep(400, 40, 1.2, 0.2),
+    fall: () => sweep(600, 30, 3.0, 0.15),
+    win: () => { blip(523, 0.3, 0.1); setTimeout(() => blip(659, 0.3, 0.1), 150); setTimeout(() => blip(784, 0.5, 0.1), 300); },
+    talk: () => blip(660, 0.05, 0.05, 'sine'),
+  };
+})();
+
+</script>
+  <script>
+// Lucid State: first prototype.
+// Plain canvas + JavaScript, no build step. Open index.html in a browser.
+(function () {
+  'use strict';
+
+  const C = window.CONFIG;
+  const T = C.tile;
+  const VW = C.viewWidth;
+  const VH = C.viewHeight;
+  const DEBUG = /[?&]debug/.test(location.search);
+
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  canvas.width = VW;
+  canvas.height = VH;
+
+  // ---------------------------------------------------------------- input
+  const keys = {};
+  const pressed = {};
+  const GAME_KEYS = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Space'];
+  window.addEventListener('keydown', (e) => {
+    if (GAME_KEYS.includes(e.code)) e.preventDefault();
+    if (!keys[e.code]) pressed[e.code] = true;
+    keys[e.code] = true;
+    if (game.mode === 'title') startGame();
+  });
+  window.addEventListener('keyup', (e) => { keys[e.code] = false; });
+  window.addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
+
+  const held = (...codes) => codes.some((c) => keys[c]);
+  const hit = (...codes) => codes.some((c) => pressed[c]);
+
+  const input = {
+    left: () => held('ArrowLeft', 'KeyA'),
+    right: () => held('ArrowRight', 'KeyD'),
+    up: () => held('ArrowUp', 'KeyW'),
+    down: () => held('ArrowDown', 'KeyS'),
+    jumpHeld: () => held('Space', 'ArrowUp', 'KeyW'),
+    jump: () => hit('Space', 'ArrowUp', 'KeyW'),
+    dash: () => hit('ShiftLeft', 'ShiftRight', 'KeyX'),
+    interact: () => hit('KeyE', 'ArrowDown', 'KeyS'),
+    action: () => hit('KeyL'),   // melee (opaque) / grapple (half), aimed 8-way
+    restart: () => hit('KeyR'),
+  };
+
+  // ---------------------------------------------------------------- level
+  const FORMS = ['solid', 'half', 'ghost'];
+  const FORM_NAMES = { solid: 'Katı', half: 'Yarı saydam', ghost: 'Hayalet' };
+
+  let level; // parsed level, rebuilt on restart
+
+  function parseLevel(src) {
+    const rows = src.map;
+    const H = rows.length;
+    const W = rows[0].length;
+    const grid = [];
+    const zone = [];
+    const npcs = [];
+    const seals = [];
+    let spawn = { tx: 2, ty: 2 };
+    for (let y = 0; y < H; y++) {
+      grid.push([]);
+      zone.push([]);
+      for (let x = 0; x < W; x++) {
+        let c = rows[y][x];
+        let z = null;
+        if (c === 'L' || c === 'S' || c === 'l') { z = c; c = '.'; }
+        if (c === 'P' || c === 'K' || c === 'O') seals.push({ type: c, tx: x, ty: y, done: false });
+        if (c === 'G') {
+          const row = rows[y];
+          let form = null;
+          if (row[x - 1] === 'q' || row[x + 1] === 'q') form = 'solid';
+          if (row[x - 1] === 'z' || row[x + 1] === 'z') form = 'half';
+          if (!form) form = 'solid';
+          seals.push({ type: 'G', tx: x, ty: y, done: false, form });
+        }
+        if (c === 'P' && (rows[y][x - 1] === 'L' || rows[y][x + 1] === 'L')) z = 'L';
+        if (c === 'P' && (rows[y][x - 1] === 'S' || rows[y][x + 1] === 'S')) z = 'S';
+        if (c === '@') { spawn = { tx: x, ty: y }; c = '.'; }
+        if (src.npcs[c]) {
+          npcs.push({ id: c, def: src.npcs[c], x: x * T + T / 2, y: (y + 1) * T });
+          c = '.';
+        }
+        grid[y].push(c);
+        zone[y].push(z);
+      }
+    }
+    return {
+      W, H, grid, zone, npcs, spawn, seals,
+      name: src.name,
+      raceAfterSeals: !!src.raceAfterSeals,
+      zoneRects: {
+        L: groupRects(zone, 'L', W, H),
+        S: groupRects(zone, 'S', W, H),
+        l: groupRects(zone, 'l', W, H),
+      },
+    };
+  }
+
+  // Group connected zone tiles into bounding boxes (for nice glows).
+  function groupRects(zone, kind, W, H) {
+    const seen = zone.map((r) => r.map(() => false));
+    const out = [];
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        if (zone[y][x] !== kind || seen[y][x]) continue;
+        let x0 = x, x1 = x, y0 = y, y1 = y;
+        const stack = [[x, y]];
+        seen[y][x] = true;
+        while (stack.length) {
+          const [cx, cy] = stack.pop();
+          x0 = Math.min(x0, cx); x1 = Math.max(x1, cx);
+          y0 = Math.min(y0, cy); y1 = Math.max(y1, cy);
+          for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+            const nx = cx + dx, ny = cy + dy;
+            if (nx >= 0 && ny >= 0 && nx < W && ny < H && !seen[ny][nx] && zone[ny][nx] === kind) {
+              seen[ny][nx] = true;
+              stack.push([nx, ny]);
+            }
+          }
+        }
+        out.push({ x: x0 * T, y: y0 * T, w: (x1 - x0 + 1) * T, h: (y1 - y0 + 1) * T });
+      }
+    }
+    return out;
+  }
+
+  function tileAt(tx, ty) {
+    if (ty < 0) return '#';                  // closed ceiling
+    if (tx < 0 || tx >= level.W) return '#';
+    if (ty >= level.H) return '.';           // open bottom: you can fall out
+    return level.grid[ty][tx];
+  }
+
+  function zoneAt(px, py) {
+    const tx = Math.floor(px / T), ty = Math.floor(py / T);
+    if (ty < 0 || ty >= level.H || tx < 0 || tx >= level.W) return null;
+    const z = level.zone[ty][tx];
+    if (z === 'l') return game.lampLit ? 'L' : null;
+    return z;
+  }
+
+  // Timed platforms: 'T' and 't' blink in opposite phases.
+  function timedPhase(c) {
+    const tp = C.timed;
+    return (game.levelTime + (c === 't' ? tp.period / 2 : 0)) % tp.period;
+  }
+  function timedOn(c) { return timedPhase(c) < C.timed.onTime; }
+  function timedWarning(c) {
+    const t = timedPhase(c);
+    return t < C.timed.onTime && t > C.timed.onTime - C.timed.warnTime;
+  }
+
+  // The heart of the mechanic: what blocks you depends on your form and world.
+  function blocks(c, form, world) {
+    switch (c) {
+      case '#': return true;
+      case 'a': return world === 0;
+      case 'b': return world === 1;
+      case '|': return form === 'solid';
+      case 'W': return form !== 'ghost';
+      case '~': return form === 'ghost';
+      case 'D': return !game.doorOpen;
+      default: return false;
+    }
+  }
+
+  function overlapsTile(x, y, w, h, test) {
+    const tx0 = Math.floor(x / T), tx1 = Math.floor((x + w - 0.001) / T);
+    const ty0 = Math.floor(y / T), ty1 = Math.floor((y + h - 0.001) / T);
+    for (let ty = ty0; ty <= ty1; ty++) {
+      for (let tx = tx0; tx <= tx1; tx++) {
+        if (test(tileAt(tx, ty), tx, ty)) return true;
+      }
+    }
+    return false;
+  }
+
+  function solidAt(x, y, w, h, form, world) {
+    return overlapsTile(x, y, w, h, (c) => blocks(c, form, world));
+  }
+
+  // ---------------------------------------------------------------- game state
+  const game = {
+    mode: 'title', // title | play | dead | falling | won
+    time: 0,
+    levelIndex: 0,
+  };
+
+  function formFor(curse) {
+    if (curse >= C.curse.ghostAt) return 'ghost';
+    if (curse >= C.curse.halfAt) return 'half';
+    return 'solid';
+  }
+
+  // The form the curse "wants" right now, ignoring any gate lock.
+  function curseForm() {
+    if (game.formLock) return game.formLock;
+    return formFor(game.curse);
+  }
+
+  function resetLevel() {
+    level = parseLevel(window.LEVELS[game.levelIndex]);
+    const P = C.player;
+    game.player = {
+      x: level.spawn.tx * T + (T - P.width) / 2,
+      y: (level.spawn.ty + 1) * T - P.height,
+      w: P.width,
+      h: P.height,
+      vx: 0, vy: 0,
+      facing: 1,
+      onGround: false,
+      coyote: 0,
+      jumpBuffer: 0,
+      airJumps: 0,
+      airDash: true,
+      dashTimer: 0,
+      dashCooldown: 0,
+      skidding: false,
+      wallLock: 0,
+      wallDir: 0,
+      hookPull: 0,
+      lungeTimer: 0,
+    };
+    game.curse = 0;
+    game.form = 'solid';
+    game.world = 0;
+    game.doorOpen = false;
+    game.lampLit = false;
+    game.raceOn = false;
+    game.formLock = null;
+    game.meleeFx = null;
+    game.hook = null;
+    game.hookCooldown = 0;
+    game.meleeCooldown = 0;
+    game.dialogue = null;
+    game.message = null;
+    game.deathText = '';
+    game.modeTime = 0;
+    game.beatTimer = 0.5;
+    game.pulse = 0;
+    game.flash = 0;
+    game.formFlash = 0;
+    game.camX = 0;
+    game.camY = 0;
+    game.levelTime = 0;
+    game.particles = [];
+    game.mode = 'play';
+  }
+
+  function startGame() {
+    Sound.init();
+    game.levelIndex = 0;
+    resetLevel();
+    showMessage('←/→ yürü · Boşluk zıpla · Shift atıl · E etkileşim · L yumruk/kanca', 5);
+  }
+
+  function showMessage(text, seconds) {
+    game.message = { text, t: seconds || 3 };
+  }
+
+  function die(text) {
+    if (game.mode !== 'play') return;
+    game.mode = 'dead';
+    game.modeTime = 0;
+    game.deathText = text;
+    game.dialogue = null;
+    Sound.die();
+  }
+
+  function fallForever() {
+    game.mode = 'falling';
+    game.modeTime = 0;
+    game.dialogue = null;
+    game.player.vx *= 0.3;
+    Sound.fall();
+  }
+
+  // ---------------------------------------------------------------- update
+  function update(dt) {
+    game.time += dt;
+    if (game.mode === 'title') return;
+
+    if (input.restart() && game.mode !== 'title') { resetLevel(); return; }
+
+    game.modeTime += dt;
+    updateParticles(dt);
+    if (game.message) { game.message.t -= dt; if (game.message.t <= 0) game.message = null; }
+    game.flash = Math.max(0, game.flash - dt * 2);
+    game.formFlash = Math.max(0, game.formFlash - dt * 1.5);
+    game.pulse = Math.max(0, game.pulse - dt * 3);
+
+    if (game.mode === 'falling') {
+      const p = game.player;
+      p.vy = Math.min(p.vy + 900 * dt, 1400);
+      p.y += p.vy * dt;
+      p.x += p.vx * dt;
+      game.camY = p.y - VH / 2;
+      heartbeat(dt, 100 + game.modeTime * 30);
+      if (Math.random() < 0.6) spawnWisp(p, 1);
+      return;
+    }
+    if (game.mode === 'dead' || game.mode === 'won') {
+      if (game.modeTime > 0.6 && hit('Space', 'Enter')) {
+        if (game.mode === 'won') game.levelIndex = (game.levelIndex + 1) % window.LEVELS.length;
+        resetLevel();
+        showMessage(level.name, 3);
+      }
+      return;
+    }
+
+    game.levelTime += dt;
+    updateCurse(dt);
+    if (game.mode !== 'play') return;
+
+    // Dialogue freezes your body, but the curse keeps ticking.
+    if (game.dialogue) {
+      if (input.interact() || input.jump()) advanceDialogue();
+      const p = game.player;
+      p.vx = 0;
+      if (!p.onGround) movePlayer(dt, true);
+    } else {
+      movePlayer(dt, false);
+      if (game.mode !== 'play') return;
+      handleAction();
+      updateHook(dt);
+      updateMelee(dt);
+      if (game.mode !== 'play') return;
+      handleInteract();
+      checkGates();
+      if (game.mode !== 'play') return;
+    }
+    checkHazards();
+    updateCamera(dt);
+    heartbeat(dt, game.curse);
+  }
+
+  function updateCurse(dt) {
+    const cc = C.curse;
+    const p = game.player;
+    let rate = game.raceOn ? cc.raceBaseRate : cc.baseRate;
+    const z = zoneAt(p.x + p.w / 2, p.y + p.h / 2);
+    if (z) {
+      const healing = (z === 'L') === (game.world === 0);
+      rate += healing ? cc.lightRate : cc.shadowRate;
+    }
+    game.curse = Math.max(0, game.curse + rate * dt);
+    if (game.curse >= 100) { game.curse = 100; fallForever(); return; }
+    setFormFromCurse();
+  }
+
+  function setFormFromCurse() {
+    const next = curseForm();
+    if (next === game.form) return;
+    const prev = game.form;
+    game.form = next;
+    game.formFlash = 1;
+    if (FORMS.indexOf(next) > FORMS.indexOf(prev)) Sound.stateUp(); else Sound.stateDown();
+    showMessage(FORM_NAMES[next], 1.5);
+    const p = game.player;
+    if (solidAt(p.x, p.y, p.w, p.h, game.form, game.world)) {
+      die('Bir duvarın içinde katılaştın.');
+    }
+  }
+
+  // ---------------------------------------------------------------- 8-way aim
+  // Aim follows the held movement input (WASD or arrows); falls back to facing.
+  function aimDir() {
+    let dx = (input.right() ? 1 : 0) - (input.left() ? 1 : 0);
+    let dy = (held('ArrowDown', 'KeyS') ? 1 : 0) - (input.jumpHeld() ? 1 : 0);
+    if (dx === 0 && dy === 0) return { x: game.player.facing, y: 0 };
+    const m = Math.hypot(dx, dy);
+    return { x: dx / m, y: dy / m };
+  }
+
+  function playerCenter() {
+    const p = game.player;
+    return { x: p.x + p.w / 2, y: p.y + p.h / 2 };
+  }
+
+  // L does one thing per form: grapple (half) or melee (opaque / solid).
+  function handleAction() {
+    if (!input.action()) return;
+    if (game.form === 'half') startGrapple();
+    else if (game.form === 'solid') startMelee();
+    // ghost: hands pass through everything.
+  }
+
+  // ---------------------------------------------------------------- grapple
+  function findGrappleTarget(cx, cy, dir) {
+    let best = null;
+    for (let ty = 0; ty < level.H; ty++) {
+      for (let tx = 0; tx < level.W; tx++) {
+        if (level.grid[ty][tx] !== 'h') continue;
+        const x = tx * T + T / 2, y = ty * T + T / 2;
+        const dx = x - cx, dy = y - cy;
+        const dist = Math.hypot(dx, dy);
+        if (dist > C.grapple.range || dist < 1) continue;
+        const dot = (dx * dir.x + dy * dir.y) / dist;
+        if (dot < 0.85) continue;                 // must be roughly in aim direction
+        if (!best || dist < best.dist) best = { x, y, dist };
+      }
+    }
+    return best;
+  }
+
+  function startGrapple() {
+    if (game.hook || game.hookCooldown > 0) return;
+    const c = playerCenter();
+    const target = findGrappleTarget(c.x, c.y, aimDir());
+    if (!target) { Sound.talk(); return; }
+    game.hook = { state: 'flying', x: c.x, y: c.y, tx: target.x, ty: target.y };
+    Sound.dash();
+  }
+
+  function updateHook(dt) {
+    if (game.hookCooldown > 0) game.hookCooldown -= dt;
+    const h = game.hook;
+    if (!h) return;
+    const G = C.grapple;
+    const p = game.player;
+    const c = playerCenter();
+
+    if (h.state === 'flying') {
+      const dx = h.tx - h.x, dy = h.ty - h.y;
+      const d = Math.hypot(dx, dy);
+      const step = G.speed * dt;
+      if (d <= step) { h.x = h.tx; h.y = h.ty; h.state = 'pulling'; }
+      else { h.x += (dx / d) * step; h.y += (dy / d) * step; }
+    } else if (h.state === 'pulling') {
+      const dx = h.tx - c.x, dy = h.ty - c.y;
+      const d = Math.hypot(dx, dy);
+      if (d <= G.stopDist || game.form !== 'half') { releaseHook(); return; }
+      const ux = dx / d, uy = dy / d;
+      // Pull speed ramps up the longer you hold on.
+      p.hookPull = Math.min(G.maxPull, (p.hookPull || 0) + G.pullAccel * dt);
+      const sp = Math.max(G.pullSpeed, p.hookPull);
+      p.vx = ux * sp;
+      p.vy = uy * sp;
+      p.dashTimer = 0;
+    }
+  }
+
+  function releaseHook() {
+    const h = game.hook;
+    if (!h) return;
+    const p = game.player;
+    // Keep a share of the momentum so you fly off the anchor.
+    p.vx *= C.grapple.afterMomentum;
+    p.vy *= C.grapple.afterMomentum;
+    p.hookPull = 0;
+    game.hook = null;
+    game.hookCooldown = 0.2;
+  }
+
+  // ---------------------------------------------------------------- melee
+  function startMelee() {
+    if (game.meleeCooldown > 0) return;
+    const M = C.melee;
+    game.meleeCooldown = M.cooldown;
+    const c = playerCenter();
+    const dir = aimDir();
+    game.meleeFx = { x: c.x, y: c.y, dir, t: 0.18 };
+
+    // Hit every knockback block ('v') inside the aim cone.
+    const hits = [];
+    for (let ty = 0; ty < level.H; ty++) {
+      for (let tx = 0; tx < level.W; tx++) {
+        if (level.grid[ty][tx] !== 'v') continue;
+        const bx = tx * T + T / 2, by = ty * T + T / 2;
+        const dx = bx - c.x, dy = by - c.y;
+        const dist = Math.hypot(dx, dy) || 0.001;
+        if (dist > M.range + T / 2) continue;
+        const dot = (dx * dir.x + dy * dir.y) / dist;
+        if (dot < Math.cos(M.halfAngle)) continue;
+        hits.push({ tx, ty, bx, by, dx: dx / dist, dy: dy / dist, block: true });
+      }
+    }
+    if (hits.length) {
+      game.meleeCooldown = M.cooldown + M.hitStop;
+      // Blocks are anchored props: they flash but never move.
+      for (const hit of hits) burstBlock(hit);
+      // You are thrown straight back along the aim, full 8-way.
+      const p = game.player;
+      p.vx = -dir.x * M.knockback;
+      p.vy = -dir.y * M.knockback;
+      p.lungeTimer = M.lungeTime;
+      p.onGround = false;
+      p.airDash = true;
+      p.airJumps = 1;
+      Sound.plate();
+    } else {
+      Sound.talk();
+    }
+  }
+
+  function updateMelee(dt) {
+    if (game.meleeCooldown > 0) game.meleeCooldown -= dt;
+    if (game.meleeFx) { game.meleeFx.t -= dt; if (game.meleeFx.t <= 0) game.meleeFx = null; }
+  }
+
+  // Knockback blocks are immovable; a hit only spawns a spark burst on them.
+  function burstBlock(hit) {
+    for (let i = 0; i < 6; i++) {
+      spawnWisp({ x: hit.tx * T, y: hit.ty * T, w: T, h: T }, 1);
+    }
+  }
+
+  // ---------------------------------------------------------------- gates
+  function checkGates() {
+    const p = game.player;
+    for (const s of level.seals) {
+      if (s.type !== 'G') continue;
+      const x = s.tx * T, y = s.ty * T;
+      if (p.x < x + T && p.x + p.w > x && p.y < y + T && p.y + p.h > y) {
+        if (game.formLock === s.form) continue;
+        game.formLock = s.form;
+        setFormFromCurse();
+        showMessage(s.form === 'half' ? 'Hâlin mühürlendi: yarı saydam' : 'Hâlin mühürlendi: opak', 2.5);
+        game.formFlash = 1;
+      }
+    }
+  }
+
+  function movePlayer(dt, frozen) {
+    const P = C.player;
+    const p = game.player;
+    const form = game.form;
+    const ghost = form === 'ghost';
+
+    // Timers.
+    p.coyote -= dt;
+    p.jumpBuffer -= dt;
+    p.dashCooldown -= dt;
+    p.wallLock -= dt;
+    if (!frozen && input.jump()) p.jumpBuffer = P.jumpBuffer;
+
+    // Horizontal control.
+    const dir = frozen ? 0 : (input.right() ? 1 : 0) - (input.left() ? 1 : 0);
+    if (dir !== 0) p.facing = dir;
+    const hooked = game.hook && game.hook.state === 'pulling';
+    const lunging = p.lungeTimer > 0;
+    if (p.dashTimer > 0) {
+      p.dashTimer -= dt;
+    } else if (p.wallLock <= 0 && !hooked && !lunging) {
+      if (dir !== 0 && p.vx !== 0 && Math.sign(p.vx) !== dir) {
+        // Skid: solid, sharp brake on the ground; looser in the air.
+        p.vx += dir * (p.onGround ? P.skidDecel : P.accelAir) * dt;
+      } else {
+        const target = dir * P.runSpeed;
+        const a = dir !== 0 ? (p.onGround ? P.accelGround : P.accelAir) : (p.onGround ? P.frictionGround : P.frictionAir);
+        if (p.vx < target) p.vx = Math.min(target, p.vx + a * dt);
+        else if (p.vx > target) p.vx = Math.max(target, p.vx - a * dt);
+      }
+      if (Math.abs(p.vx) > P.runSpeed) p.vx = Math.sign(p.vx) * P.runSpeed;
+      p.skidding = p.onGround && dir !== 0 && p.vx !== 0 && Math.sign(p.vx) !== dir && Math.abs(p.vx) > P.walkSpeed;
+    }
+
+    // Wall contact (only matters for SOLID).
+    p.wallDir = 0;
+    if (!p.onGround) {
+      if (solidAt(p.x + p.w, p.y + 4, 2, p.h - 8, form, game.world)) p.wallDir = 1;
+      else if (solidAt(p.x - 2, p.y + 4, 2, p.h - 8, form, game.world)) p.wallDir = -1;
+    }
+
+    // Dash.
+    if (!frozen && !hooked && input.dash() && p.dashCooldown <= 0 && (p.onGround || p.airDash)) {
+      p.dashTimer = P.dashTime;
+      p.dashCooldown = P.dashCooldown;
+      p.vx = p.facing * P.dashSpeed * (ghost ? P.ghostDashScale : 1);
+      p.vy = 0;
+      if (!p.onGround) p.airDash = false;
+      game.curse += C.curse.dashCost;
+      Sound.dash();
+      for (let i = 0; i < 8; i++) spawnWisp(p, 1);
+      setFormFromCurse();
+      if (game.mode !== 'play') return;
+    }
+
+    // Jumps.
+    if (p.jumpBuffer > 0) {
+      if (p.onGround || p.coyote > 0) {
+        p.vy = -(ghost ? P.ghostJumpSpeed : P.jumpSpeed);
+        p.jumpBuffer = 0; p.coyote = 0; p.onGround = false;
+        Sound.jump();
+      } else if (form === 'solid' && p.wallDir !== 0) {
+        p.vx = -p.wallDir * P.wallJumpX;
+        p.vy = -P.wallJumpY;
+        p.facing = -p.wallDir;
+        p.wallLock = 0.16;
+        p.jumpBuffer = 0;
+        Sound.jump();
+      } else if (form === 'half' && p.airJumps > 0) {
+        p.vy = -P.doubleJumpSpeed;
+        p.airJumps--;
+        p.jumpBuffer = 0;
+        Sound.jump();
+        for (let i = 0; i < 6; i++) spawnWisp(p, 0.6);
+      }
+    }
+    // Or use it to jump off a knockback block? No: a melee launch (lunge) owns the velocity.
+    // Variable jump height (Mario-like): releasing the jump key early cuts the rise.
+    // Jump also animates the held up-key, so exclude it from the cut.
+    const jumpHeld = input.jumpHeld() || input.up();
+    if (!jumpHeld && p.vy < 0 && p.dashTimer <= 0 && p.lungeTimer <= 0) {
+      p.vy *= Math.pow(0.04, dt);
+      if (p.vy > -P.jumpCutMin) p.vy = -P.jumpCutMin;
+    }
+
+    // Gravity.
+    if (p.lungeTimer > 0) p.lungeTimer -= dt;
+    const airLunge = p.lungeTimer > 0;
+    if (p.dashTimer <= 0 && !hooked && !airLunge) {
+      // SMW-style arc: gentler near the apex (hang time), heavier on the way down.
+      let scale = 1;
+      const nearApex = Math.abs(p.vy) < P.jumpSpeed * 0.35;
+      if (p.vy < 0 && nearApex) scale = input.jumpHeld() || input.up() ? P.gravityHoldLow : P.gravityHoldHigh;
+      else if (p.vy >= 0) scale = P.fallGravityScale;
+      const g = P.gravity * scale * (ghost ? P.ghostGravityScale : 1);
+      p.vy += g * dt;
+      let maxFall = ghost ? P.ghostMaxFall : P.maxFall;
+      if (form === 'solid' && p.wallDir !== 0 && p.vy > 0 && dir === p.wallDir) maxFall = P.wallSlideSpeed;
+      p.vy = Math.min(p.vy, maxFall);
+    }
+
+    // Move with collision, in small steps.
+    const steps = Math.ceil(Math.max(Math.abs(p.vx), Math.abs(p.vy)) * dt / (T / 3)) || 1;
+    const sdt = dt / steps;
+    const wasGround = p.onGround;
+    p.onGround = false;
+    for (let i = 0; i < steps; i++) {
+      moveAxis(p, p.vx * sdt, 0);
+      moveAxis(p, 0, p.vy * sdt);
+    }
+    if (p.onGround) {
+      p.coyote = C.player.coyoteTime;
+      p.airJumps = 1;
+      p.airDash = true;
+    } else if (wasGround && p.vy >= 0) {
+      p.coyote = C.player.coyoteTime;
+    }
+  }
+
+  function moveAxis(p, dx, dy) {
+    const form = game.form, world = game.world;
+    if (dx !== 0) {
+      p.x += dx;
+      if (solidAt(p.x, p.y, p.w, p.h, form, world)) {
+        if (dx > 0) p.x = Math.floor((p.x + p.w) / T) * T - p.w - 0.001;
+        else p.x = (Math.floor(p.x / T) + 1) * T + 0.001;
+        p.vx = 0;
+        p.dashTimer = 0;
+      }
+    }
+    if (dy !== 0) {
+      const prevBottom = p.y + p.h;
+      p.y += dy;
+      if (dy > 0 && landOnTimed(p, prevBottom)) return;
+      if (solidAt(p.x, p.y, p.w, p.h, form, world)) {
+        if (dy > 0) {
+          p.y = Math.floor((p.y + p.h) / T) * T - p.h - 0.001;
+          p.onGround = true;
+        } else {
+          p.y = (Math.floor(p.y / T) + 1) * T + 0.001;
+        }
+        p.vy = 0;
+      }
+    }
+  }
+
+  // Timed platforms are one-way: you land on them from above while they are lit.
+  function landOnTimed(p, prevBottom) {
+    const bottom = p.y + p.h;
+    const ty = Math.floor((bottom - 0.001) / T);
+    const top = ty * T;
+    if (prevBottom > top + 0.01 || bottom < top) return false;
+    const tx0 = Math.floor(p.x / T), tx1 = Math.floor((p.x + p.w - 0.001) / T);
+    for (let tx = tx0; tx <= tx1; tx++) {
+      const c = tileAt(tx, ty);
+      if ((c === 'T' || c === 't') && timedOn(c)) {
+        p.y = top - p.h - 0.001;
+        p.vy = 0;
+        p.onGround = true;
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function nearbyNpc() {
+    const p = game.player;
+    const cx = p.x + p.w / 2, cy = p.y + p.h;
+    for (const n of level.npcs) {
+      if (!n.def.seesIn.includes(game.form)) continue;
+      if (Math.abs(n.x - cx) < 48 && Math.abs(n.y - cy) < 40) return n;
+    }
+    return null;
+  }
+
+  function onMirror() {
+    const p = game.player;
+    return overlapsTile(p.x, p.y, p.w, p.h, (c) => c === 'M');
+  }
+
+  function handleInteract() {
+    if (!input.interact()) return;
+    const n = nearbyNpc();
+    if (n) {
+      game.dialogue = { npc: n, line: 0 };
+      Sound.talk();
+      return;
+    }
+    const lever = touchingSeal('K');
+    if (lever) {
+      if (game.form === 'ghost') { showMessage('Elin şalterin içinden geçiyor.', 2); return; }
+      completeSeal(lever);
+      return;
+    }
+    if (onMirror()) {
+      game.world = 1 - game.world;
+      game.flash = 1;
+      Sound.mirror();
+      showMessage(game.world === 1 ? 'Aynanın öte yanı' : 'Bu taraf', 2);
+      const p = game.player;
+      if (solidAt(p.x, p.y, p.w, p.h, game.form, game.world)) die('Aynadan geçerken taşa saplandın.');
+    }
+  }
+
+  function advanceDialogue() {
+    const d = game.dialogue;
+    d.line++;
+    Sound.talk();
+    if (d.line >= d.npc.def.lines.length) game.dialogue = null;
+  }
+
+  function touchingSeal(type) {
+    const p = game.player;
+    for (const s of level.seals) {
+      if (s.type !== type || s.done) continue;
+      const x = s.tx * T, y = s.ty * T;
+      if (p.x < x + T && p.x + p.w > x && p.y < y + T && p.y + p.h > y) return s;
+    }
+    return null;
+  }
+
+  function completeSeal(s) {
+    s.done = true;
+    if (s.type === 'O') game.lampLit = true;
+    Sound.plate();
+    const done = level.seals.filter((q) => q.done).length;
+    const total = level.seals.length;
+    if (done === total) {
+      game.doorOpen = true;
+      if (level.raceAfterSeals) {
+        game.raceOn = true;
+        showMessage('Kapı açıldı. Zaman hızlanıyor.', 3);
+      } else {
+        showMessage('Uzakta ağır bir şey açıldı.', 3);
+      }
+    } else {
+      const what = { P: 'Bir ağırlık yerine oturdu.', K: 'Şalter döndü.', O: 'Sönük lamba yandı.' }[s.type];
+      showMessage(`${what} (${done}/${total})`, 3);
+    }
+  }
+
+  function checkHazards() {
+    const p = game.player;
+    // Plate: only a solid body standing on it.
+    const plate = touchingSeal('P');
+    if (plate && game.form === 'solid' && p.onGround) completeSeal(plate);
+    // Lamp: only a ghost's touch lights it.
+    const lamp = touchingSeal('O');
+    if (lamp && game.form === 'ghost') completeSeal(lamp);
+    // Spikes (lower half of the tile).
+    if (game.form !== 'ghost' &&
+        overlapsTile(p.x + 2, p.y + p.h - 12, p.w - 4, 12, (c) => c === '^')) {
+      die('Dikenler katı bedenini buldu.');
+      return;
+    }
+    if (p.y > level.H * T + 40) { die('Boşluğa düştün.'); return; }
+    if (overlapsTile(p.x, p.y, p.w, p.h, (c) => c === 'X')) {
+      game.mode = 'won';
+      game.modeTime = 0;
+      Sound.win();
+    }
+  }
+
+  function updateCamera(dt) {
+    const p = game.player;
+    const target = Math.max(0, Math.min(level.W * T - VW, p.x + p.w / 2 - VW / 2 + p.facing * 60));
+    game.camX += (target - game.camX) * Math.min(1, dt * 5);
+    game.camY = 0;
+  }
+
+  function heartbeat(dt, curse) {
+    const hb = C.heartbeat;
+    const k = Math.min(1, curse / 100);
+    game.beatTimer -= dt;
+    if (game.beatTimer <= 0) {
+      Sound.heartbeat(hb.minVolume + (hb.maxVolume - hb.minVolume) * k);
+      game.beatTimer = hb.slowInterval + (hb.fastInterval - hb.slowInterval) * k;
+      game.pulse = 1;
+    }
+  }
+
+  // ---------------------------------------------------------------- particles
+  function spawnWisp(p, strength) {
+    game.particles.push({
+      x: p.x + Math.random() * p.w,
+      y: p.y + Math.random() * p.h,
+      vx: (Math.random() - 0.5) * 30,
+      vy: -20 - Math.random() * 40,
+      life: 0.8 + Math.random() * 0.8,
+      max: 1.6,
+      a: strength,
+    });
+  }
+
+  function updateParticles(dt) {
+    if (game.mode === 'play' && Math.random() < game.curse / 100 * 0.7) spawnWisp(game.player, game.curse / 100);
+    for (const q of game.particles) {
+      q.x += q.vx * dt; q.y += q.vy * dt; q.life -= dt;
+    }
+    game.particles = game.particles.filter((q) => q.life > 0);
+  }
+
+  // ---------------------------------------------------------------- render
+  const PALETTE = [
+    { // normal world
+      skyTop: '#07080f', skyBottom: '#1b1230',
+      far: '#120d22', mid: '#0d0a19', near: '#08070f',
+      stone: '#06060b', edge: 'rgba(190,170,255,0.55)',
+      light: [255, 205, 120], shadow: [60, 10, 90],
+      player: [235, 230, 255],
+    },
+    { // mirror world
+      skyTop: '#050d0e', skyBottom: '#2a0e1e',
+      far: '#1d0c18', mid: '#130812', near: '#09050a',
+      stone: '#07050a', edge: 'rgba(120,255,230,0.5)',
+      light: [255, 70, 80], shadow: [40, 160, 150],
+      player: [200, 255, 245],
+    },
+  ];
+
+  // Pre-built silhouette skylines for parallax.
+  const SKYLINES = [0.15, 0.35, 0.6].map((factor, layer) => {
+    const pts = [];
+    let seed = 1234 + layer * 99;
+    const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+    const base = [330, 380, 430][layer];
+    for (let x = 0; x <= 4000; x += 40) {
+      let h = base - rnd() * (60 + layer * 30);
+      if (rnd() < 0.12) h -= 60 + rnd() * 80; // spires / dead trees
+      pts.push([x, h]);
+    }
+    return { factor, pts };
+  });
+
+  function rgba(c, a) { return `rgba(${c[0]},${c[1]},${c[2]},${a})`; }
+
+  function render() {
+    if (game.mode === 'title') return renderTitle();
+    const pal = PALETTE[game.world];
+    const camX = Math.round(game.camX), camY = Math.round(game.camY);
+
+    // Sky.
+    const sky = ctx.createLinearGradient(0, 0, 0, VH);
+    sky.addColorStop(0, pal.skyTop);
+    sky.addColorStop(1, pal.skyBottom);
+    ctx.fillStyle = sky;
+    ctx.fillRect(0, 0, VW, VH);
+
+    if (game.mode === 'falling') return renderFalling(pal);
+
+    // Parallax silhouettes.
+    [pal.far, pal.mid, pal.near].forEach((col, i) => {
+      const s = SKYLINES[i];
+      ctx.fillStyle = col;
+      ctx.beginPath();
+      ctx.moveTo(0, VH);
+      for (const [x, y] of s.pts) ctx.lineTo(x - camX * s.factor, y);
+      ctx.lineTo(VW, VH);
+      ctx.closePath();
+      ctx.fill();
+    });
+
+    ctx.save();
+    ctx.translate(-camX, -camY);
+    drawZones(pal);
+    drawTiles(pal);
+    drawNpcs(pal);
+    drawHook(pal);
+    drawMelee(pal);
+    drawPlayer(pal);
+    drawParticles(pal);
+    ctx.restore();
+
+    drawOverlay(pal);
+    drawHud(pal);
+  }
+
+  function drawZones(pal) {
+    const t = game.time;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    const lights = game.lampLit ? level.zoneRects.L.concat(level.zoneRects.l) : level.zoneRects.L;
+    for (const r of lights) {
+      const cx = r.x + r.w / 2, cy = r.y + r.h / 2;
+      const rad = Math.max(r.w, r.h) * 0.9;
+      const g = ctx.createRadialGradient(cx, cy, 4, cx, cy, rad);
+      const flick = 0.9 + Math.sin(t * 3 + cx) * 0.05;
+      g.addColorStop(0, rgba(pal.light, 0.45 * flick));
+      g.addColorStop(0.5, rgba(pal.light, 0.15 * flick));
+      g.addColorStop(1, rgba(pal.light, 0));
+      ctx.fillStyle = g;
+      ctx.fillRect(cx - rad, cy - rad, rad * 2, rad * 2);
+      // the lamp itself
+      ctx.fillStyle = rgba(pal.light, 0.9);
+      ctx.beginPath();
+      ctx.arc(cx, r.y + 6, 4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+    if (!game.lampLit) {
+      for (const r of level.zoneRects.l) {
+        ctx.strokeStyle = 'rgba(255,205,120,0.12)';
+        ctx.setLineDash([3, 6]);
+        ctx.strokeRect(r.x + 0.5, r.y + 0.5, r.w - 1, r.h - 1);
+        ctx.setLineDash([]);
+        ctx.fillStyle = 'rgba(255,205,120,0.25)';
+        ctx.beginPath();
+        ctx.arc(r.x + r.w / 2, r.y + 6, 4, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    for (const r of level.zoneRects.S) {
+      ctx.fillStyle = rgba(pal.shadow, 0.28);
+      ctx.fillRect(r.x, r.y, r.w, r.h);
+      // drifting mist blobs
+      for (let i = 0; i < 8; i++) {
+        const bx = r.x + ((i * 53 + t * 12 * (i % 2 ? 1 : -1)) % r.w + r.w) % r.w;
+        const by = r.y + ((i * 37 + Math.sin(t + i) * 10) % r.h + r.h) % r.h;
+        const g = ctx.createRadialGradient(bx, by, 2, bx, by, 26);
+        g.addColorStop(0, rgba(pal.shadow, 0.35));
+        g.addColorStop(1, rgba(pal.shadow, 0));
+        ctx.fillStyle = g;
+        ctx.fillRect(bx - 26, by - 26, 52, 52);
+      }
+    }
+  }
+
+  function isStoneHere(c, world) {
+    return c === '#' || (c === 'a' && world === 0) || (c === 'b' && world === 1);
+  }
+
+  function drawTiles(pal) {
+    const form = game.form, world = game.world, t = game.time;
+    const tx0 = Math.max(0, Math.floor(game.camX / T) - 1);
+    const tx1 = Math.min(level.W - 1, Math.ceil((game.camX + VW) / T) + 1);
+    for (let ty = 0; ty < level.H; ty++) {
+      for (let tx = tx0; tx <= tx1; tx++) {
+        const c = level.grid[ty][tx];
+        const x = tx * T, y = ty * T;
+        if (c === '.') continue;
+        if (isStoneHere(c, world)) {
+          ctx.fillStyle = pal.stone;
+          ctx.fillRect(x, y, T, T);
+          if (!isStoneHere(tileAt(tx, ty - 1), world) && ty > 0) {
+            ctx.fillStyle = pal.edge;
+            ctx.fillRect(x, y, T, 2);
+          }
+        } else if (c === 'a' || c === 'b') {
+          // Stone from the other world: only a faint echo.
+          ctx.strokeStyle = 'rgba(255,255,255,0.07)';
+          ctx.setLineDash([4, 4]);
+          ctx.strokeRect(x + 0.5, y + 0.5, T - 1, T - 1);
+          ctx.setLineDash([]);
+        } else if (c === '|') {
+          const solid = blocks(c, form, world);
+          ctx.fillStyle = solid ? 'rgba(160,165,190,0.9)' : 'rgba(160,165,190,0.25)';
+          for (let i = 0; i < 3; i++) ctx.fillRect(x + 5 + i * 10, y, 3, T);
+          if (ty === 0 || tileAt(tx, ty - 1) !== '|') ctx.fillRect(x, y, T, 3);
+        } else if (c === 'W') {
+          const solid = blocks(c, form, world);
+          ctx.fillStyle = solid ? '#1c1a2c' : 'rgba(40,36,70,0.35)';
+          ctx.fillRect(x, y, T, T);
+          ctx.strokeStyle = solid ? 'rgba(120,110,170,0.35)' : 'rgba(150,140,220,0.2)';
+          ctx.beginPath();
+          ctx.moveTo(x + 4, y + ((tx * 7 + ty * 13) % 20) + 4);
+          ctx.lineTo(x + T - 6, y + ((tx * 11 + ty * 5) % 20) + 8);
+          ctx.stroke();
+        } else if (c === '~') {
+          const solid = blocks(c, form, world);
+          const a = solid ? 0.85 + Math.sin(t * 4 + tx) * 0.1 : 0.12;
+          ctx.fillStyle = `rgba(140,240,255,${a})`;
+          for (let i = 0; i < 4; i++) ctx.fillRect(x + i * 8 + 1, y + 2 + Math.sin(t * 2 + tx + i) * 1.5, 6, 3);
+        } else if (c === 'D') {
+          if (!game.doorOpen) {
+            ctx.fillStyle = '#140608';
+            ctx.fillRect(x + 4, y, T - 8, T);
+            ctx.fillStyle = `rgba(255,60,70,${0.6 + Math.sin(t * 3) * 0.2})`;
+            ctx.fillRect(x + 4, y, 2, T);
+            ctx.fillRect(x + T - 6, y, 2, T);
+          } else {
+            ctx.strokeStyle = 'rgba(255,90,90,0.12)';
+            ctx.strokeRect(x + 4.5, y + 0.5, T - 9, T - 1);
+          }
+          if (tileAt(tx, ty - 1) !== 'D') drawRunes(x, y, ty);
+        } else if (c === 'P') {
+          const done = sealDone(tx, ty);
+          ctx.fillStyle = done ? 'rgba(120,255,160,0.9)' : 'rgba(255,90,90,0.8)';
+          ctx.fillRect(x + 4, y + T - (done ? 3 : 6), T - 8, done ? 3 : 6);
+        } else if (c === 'K') {
+          const done = sealDone(tx, ty);
+          ctx.fillStyle = '#2a2433';
+          ctx.fillRect(x + 8, y + T - 8, T - 16, 8);
+          ctx.strokeStyle = done ? 'rgba(120,255,160,0.95)' : 'rgba(255,200,120,0.9)';
+          ctx.lineWidth = 3;
+          ctx.beginPath();
+          ctx.moveTo(x + T / 2, y + T - 6);
+          ctx.lineTo(x + T / 2 + (done ? 9 : -9), y + 8);
+          ctx.stroke();
+          ctx.lineWidth = 1;
+          if (!done && touchingSeal('K')) drawPrompt(x + T / 2, y - 6, 'E');
+        } else if (c === 'O') {
+          const done = sealDone(tx, ty);
+          const cx = x + T / 2, cy = y + T / 2;
+          if (done) {
+            ctx.save();
+            ctx.globalCompositeOperation = 'lighter';
+            const gl = ctx.createRadialGradient(cx, cy, 2, cx, cy, 40);
+            gl.addColorStop(0, 'rgba(255,220,150,0.9)');
+            gl.addColorStop(1, 'rgba(255,220,150,0)');
+            ctx.fillStyle = gl;
+            ctx.fillRect(cx - 40, cy - 40, 80, 80);
+            ctx.restore();
+          }
+          ctx.strokeStyle = done ? 'rgba(255,230,170,0.95)' : 'rgba(200,190,220,0.35)';
+          ctx.beginPath();
+          ctx.arc(cx, cy, 8, 0, Math.PI * 2);
+          ctx.stroke();
+        } else if (c === 'T' || c === 't') {
+          const on = timedOn(c);
+          const warn = timedWarning(c) && Math.floor(t * 12) % 2 === 0;
+          if (on) {
+            ctx.fillStyle = warn ? 'rgba(255,140,120,0.5)' : 'rgba(210,200,255,0.85)';
+            ctx.fillRect(x + 1, y, T - 2, 8);
+            ctx.fillStyle = 'rgba(210,200,255,0.2)';
+            ctx.fillRect(x + 1, y + 8, T - 2, 4);
+          } else {
+            ctx.strokeStyle = 'rgba(210,200,255,0.12)';
+            ctx.strokeRect(x + 1.5, y + 0.5, T - 3, 7);
+          }
+        } else if (c === '^') {
+          ctx.fillStyle = form === 'ghost' ? 'rgba(200,200,220,0.35)' : '#c9c6dc';
+          ctx.beginPath();
+          for (let i = 0; i < 4; i++) {
+            ctx.moveTo(x + i * 8, y + T);
+            ctx.lineTo(x + i * 8 + 4, y + T - 14);
+            ctx.lineTo(x + i * 8 + 8, y + T);
+          }
+          ctx.fill();
+        } else if (c === 'v') {
+          // Knockback block: anchored, a melee hit only makes it flash.
+          ctx.fillStyle = '#241a12';
+          ctx.fillRect(x + 2, y + 2, T - 4, T - 4);
+          ctx.strokeStyle = 'rgba(255,180,90,0.85)';
+          ctx.lineWidth = 2;
+          ctx.strokeRect(x + 3, y + 3, T - 6, T - 6);
+          ctx.beginPath();
+          ctx.moveTo(x + 8, y + T / 2); ctx.lineTo(x + T - 8, y + T / 2);
+          ctx.moveTo(x + T / 2, y + 8); ctx.lineTo(x + T / 2, y + T - 8);
+          ctx.stroke();
+          ctx.lineWidth = 1;
+        } else if (c === 'h') {
+          // Grapple block: a bright knuckle only a half body can latch onto.
+          const near = game.form === 'half';
+          ctx.fillStyle = near ? 'rgba(140,240,255,0.28)' : 'rgba(140,240,255,0.12)';
+          ctx.fillRect(x + 3, y + 3, T - 6, T - 6);
+          ctx.strokeStyle = 'rgba(140,240,255,0.9)';
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.arc(x + T / 2, y + T / 2, 7, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.lineWidth = 1;
+        } else if (c === 'G' && tileAt(tx, ty - 1) !== 'G') {
+          drawGate(x, y, sealForm(tx, ty));
+        } else if (c === 'M' && tileAt(tx, ty - 1) !== 'M') {          let h = 0;
+          while (tileAt(tx, ty + h) === 'M') h++;
+          drawMirror(x, y, h * T);
+        } else if (c === 'X' && tileAt(tx, ty - 1) !== 'X') {
+          let h = 0;
+          while (tileAt(tx, ty + h) === 'X') h++;
+          drawExit(x, y, h * T);
+        }
+      }
+    }
+  }
+
+  function sealDone(tx, ty) {
+    const s = level.seals.find((q) => q.tx === tx && q.ty === ty);
+    return !!(s && s.done);
+  }
+
+  function sealForm(tx, ty) {
+    const s = level.seals.find((q) => q.type === 'G' && q.tx === tx && q.ty === ty);
+    return s ? s.form : 'solid';
+  }
+
+  function drawGate(x, y, form) {
+    const locked = game.formLock === form;
+    const col = form === 'half' ? '140,240,255' : '255,205,120';
+    const a = locked ? 0.9 : 0.4 + Math.sin(game.time * 3) * 0.1;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    const grad = ctx.createLinearGradient(x, y, x, y + T);
+    grad.addColorStop(0, `rgba(${col},0.05)`);
+    grad.addColorStop(0.5, `rgba(${col},${0.28 * a})`);
+    grad.addColorStop(1, `rgba(${col},0.05)`);
+    ctx.fillStyle = grad;
+    ctx.fillRect(x, y + 2, T, T - 4);
+    ctx.restore();
+    ctx.strokeStyle = `rgba(${col},${a})`;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(x + T / 2, y + 4);
+    ctx.lineTo(x + T / 2, y + T - 4);
+    ctx.stroke();
+    ctx.lineWidth = 1;
+  }
+
+  function drawHook(pal) {
+    const h = game.hook;
+    if (!h) return;
+    const c = playerCenter();
+    ctx.save();
+    ctx.strokeStyle = rgba(pal.player, 0.8);
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(c.x, c.y);
+    ctx.lineTo(h.x, h.y);
+    ctx.stroke();
+    ctx.fillStyle = rgba(pal.player, 0.95);
+    ctx.beginPath();
+    ctx.arc(h.x, h.y, 4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function drawMelee(pal) {
+    const f = game.meleeFx;
+    if (!f) return;
+    const a = Math.max(0, f.t / 0.18);
+    const M = C.melee;
+    const spread = Math.atan2(f.dir.y, f.dir.x);
+    ctx.save();
+    ctx.strokeStyle = rgba(pal.player, 0.7 * a);
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.arc(f.x, f.y, M.range, spread - M.halfAngle, spread + M.halfAngle);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // Glowing runes on a door: one per seal in the level.
+  function drawRunes(x, y, ty) {
+    const total = level.seals.length;
+    if (total < 2) return;
+    let h = 0;
+    while (tileAt(Math.floor(x / T), ty + h) === 'D') h++;
+    const done = level.seals.filter((q) => q.done).length;
+    for (let i = 0; i < total; i++) {
+      const cy = y + (h * T) / 2 + (i - (total - 1) / 2) * 22;
+      ctx.beginPath();
+      ctx.arc(x + T / 2, cy, 5, 0, Math.PI * 2);
+      ctx.fillStyle = i < done ? 'rgba(140,255,190,0.95)' : 'rgba(255,255,255,0.12)';
+      ctx.fill();
+    }
+  }
+
+  function drawMirror(x, y, h) {
+    const t = game.time;
+    ctx.fillStyle = '#2a2433';
+    ctx.fillRect(x + 4, y - 4, T - 8, h + 4);
+    const g = ctx.createLinearGradient(x, y, x + T, y + h);
+    const s = (Math.sin(t * 1.5) + 1) / 2;
+    g.addColorStop(0, 'rgba(180,200,230,0.35)');
+    g.addColorStop(Math.max(0.01, Math.min(0.99, s)), 'rgba(255,255,255,0.85)');
+    g.addColorStop(1, 'rgba(120,140,190,0.35)');
+    ctx.fillStyle = g;
+    ctx.fillRect(x + 7, y - 1, T - 14, h - 2);
+    if (onMirror()) drawPrompt(x + T / 2, y - 14, 'E');
+  }
+
+  function drawExit(x, y, h) {
+    const t = game.time;
+    const cx = x + T / 2, cy = y + h / 2;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    const g = ctx.createRadialGradient(cx, cy, 2, cx, cy, h);
+    g.addColorStop(0, 'rgba(255,255,255,0.8)');
+    g.addColorStop(0.3, 'rgba(170,150,255,0.35)');
+    g.addColorStop(1, 'rgba(170,150,255,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(cx - h, cy - h, h * 2, h * 2);
+    ctx.strokeStyle = `rgba(230,220,255,${0.6 + Math.sin(t * 4) * 0.3})`;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, 10, h / 2, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.lineWidth = 1;
+    ctx.restore();
+  }
+
+  function drawNpcs() {
+    const t = game.time;
+    const near = game.dialogue ? null : nearbyNpc();
+    for (const n of level.npcs) {
+      if (!n.def.seesIn.includes(game.form)) continue;
+      const ghostly = n.def.seesIn.includes('ghost');
+      const bob = ghostly ? Math.sin(t * 2) * 3 - 4 : 0;
+      const x = n.x - 10, y = n.y - 34 + bob;
+      ctx.fillStyle = ghostly ? 'rgba(150,240,255,0.35)' : '#030305';
+      roundRect(x, y, 20, 34, 7);
+      ctx.fill();
+      ctx.fillStyle = ghostly ? 'rgba(220,255,255,0.9)' : 'rgba(255,190,90,0.95)';
+      ctx.fillRect(x + 5, y + 9, 3, 3);
+      ctx.fillRect(x + 12, y + 9, 3, 3);
+      if (n === near) drawPrompt(n.x, y - 12, 'E');
+    }
+  }
+
+  function drawPlayer(pal) {
+    const p = game.player;
+    if (game.mode === 'dead') return;
+    const k = game.curse / 100;
+    const alpha = Math.max(0.18, 1 - k * 0.85);
+    const x = Math.round(p.x), y = Math.round(p.y);
+    ctx.save();
+    ctx.shadowColor = rgba(pal.player, 0.9);
+    ctx.shadowBlur = 10 + k * 14 + game.formFlash * 20;
+    ctx.fillStyle = rgba(pal.player, alpha);
+    roundRect(x, y, p.w, p.h, 6);
+    ctx.fill();
+    ctx.restore();
+    // eyes
+    ctx.fillStyle = `rgba(10,10,20,${Math.max(0.3, alpha)})`;
+    const ex = p.facing > 0 ? x + 11 : x + 4;
+    ctx.fillRect(ex, y + 8, 3, 4);
+    ctx.fillRect(ex + 5, y + 8, 3, 4);
+  }
+
+  function drawParticles(pal) {
+    for (const q of game.particles) {
+      ctx.fillStyle = rgba(pal.player, (q.life / q.max) * 0.5 * q.a);
+      ctx.fillRect(q.x, q.y, 2, 2);
+    }
+  }
+
+  function drawPrompt(x, y, label) {
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    ctx.font = 'bold 12px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(label, x, y + Math.sin(game.time * 5) * 2);
+  }
+
+  function drawOverlay() {
+    const k = game.curse / 100;
+    // Vignette grows with the curse and pulses with the heartbeat.
+    const v = ctx.createRadialGradient(VW / 2, VH / 2, VH * 0.25, VW / 2, VH / 2, VH * 0.9);
+    v.addColorStop(0, 'rgba(0,0,0,0)');
+    v.addColorStop(1, `rgba(${Math.round(40 * game.pulse * k)},0,0,${0.35 + k * 0.5})`);
+    ctx.fillStyle = v;
+    ctx.fillRect(0, 0, VW, VH);
+    if (game.flash > 0) {
+      ctx.fillStyle = `rgba(255,255,255,${game.flash * 0.6})`;
+      ctx.fillRect(0, 0, VW, VH);
+    }
+  }
+
+  function drawHud() {
+    ctx.textAlign = 'center';
+    // Three faint dots: which form you are in. No timer on purpose.
+    FORMS.forEach((f, i) => {
+      ctx.beginPath();
+      ctx.arc(24 + i * 16, 22, 4, 0, Math.PI * 2);
+      ctx.fillStyle = f === game.form ? 'rgba(255,255,255,0.8)' : 'rgba(255,255,255,0.15)';
+      ctx.fill();
+    });
+    if (game.world === 1) {
+      ctx.font = '12px monospace';
+      ctx.textAlign = 'left';
+      ctx.fillStyle = 'rgba(140,255,230,0.6)';
+      ctx.fillText('◐', 72, 26);
+    }
+    if (DEBUG) {
+      ctx.textAlign = 'left';
+      ctx.font = '12px monospace';
+      ctx.fillStyle = '#9f9';
+      ctx.fillText(`curse ${game.curse.toFixed(1)}  form ${game.form}  world ${game.world}  t ${game.levelTime.toFixed(1)}`, 100, 26);
+    }
+
+    if (game.message && !game.dialogue) {
+      ctx.textAlign = 'center';
+      ctx.font = '16px Georgia, serif';
+      ctx.fillStyle = `rgba(235,230,255,${Math.min(1, game.message.t)})`;
+      ctx.fillText(game.message.text, VW / 2, VH - 40);
+    }
+
+    if (game.dialogue) {
+      const d = game.dialogue;
+      ctx.fillStyle = 'rgba(5,4,10,0.85)';
+      ctx.fillRect(120, VH - 120, VW - 240, 90);
+      ctx.strokeStyle = 'rgba(200,190,255,0.35)';
+      ctx.strokeRect(120.5, VH - 119.5, VW - 241, 89);
+      ctx.textAlign = 'left';
+      ctx.font = 'bold 14px Georgia, serif';
+      ctx.fillStyle = 'rgba(255,210,140,0.95)';
+      ctx.fillText(d.npc.def.name, 140, VH - 94);
+      ctx.font = '17px Georgia, serif';
+      ctx.fillStyle = '#ece8ff';
+      ctx.fillText(d.npc.def.lines[d.line], 140, VH - 66);
+      ctx.font = '12px monospace';
+      ctx.fillStyle = 'rgba(255,255,255,0.5)';
+      ctx.textAlign = 'right';
+      ctx.fillText('E ▸', VW - 140, VH - 42);
+    }
+
+    if (game.mode === 'dead' || game.mode === 'won') {
+      const a = Math.min(1, game.modeTime * 2);
+      ctx.fillStyle = `rgba(0,0,0,${0.6 * a})`;
+      ctx.fillRect(0, 0, VW, VH);
+      ctx.textAlign = 'center';
+      ctx.font = '30px Georgia, serif';
+      ctx.fillStyle = `rgba(240,235,255,${a})`;
+      const last = game.levelIndex >= window.LEVELS.length - 1;
+      const wonText = last ? 'Prototipin sonu. Teşekkürler!' : 'Bölüm geçildi';
+      ctx.fillText(game.mode === 'won' ? wonText : game.deathText, VW / 2, VH / 2 - 10);
+      ctx.font = '14px monospace';
+      ctx.fillStyle = `rgba(240,235,255,${a * 0.6})`;
+      const sub = game.mode === 'won'
+        ? `${game.levelTime.toFixed(1)} sn · ` + (last ? 'Boşluk: baştan oyna' : 'Boşluk: sonraki bölüm · R: tekrar')
+        : 'R veya Boşluk: yeniden dene';
+      ctx.fillText(sub, VW / 2, VH / 2 + 26);
+    }
+  }
+
+  function renderFalling(pal) {
+    const t = game.modeTime;
+    // Streaks rushing upward: you are falling through everything.
+    ctx.strokeStyle = rgba(pal.player, 0.25);
+    for (let i = 0; i < 40; i++) {
+      const x = (i * 97) % VW;
+      const y = VH - ((t * (600 + (i % 7) * 120) + i * 53) % (VH + 200));
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x, y + 40 + (i % 5) * 20);
+      ctx.stroke();
+    }
+    ctx.save();
+    ctx.translate(-Math.round(game.camX), -Math.round(game.camY));
+    drawPlayer(pal);
+    drawParticles(pal);
+    ctx.restore();
+    const dark = Math.min(0.85, t * 0.25);
+    ctx.fillStyle = `rgba(0,0,0,${dark})`;
+    ctx.fillRect(0, 0, VW, VH);
+    if (t > 2) {
+      const a = Math.min(1, (t - 2));
+      ctx.textAlign = 'center';
+      ctx.font = '30px Georgia, serif';
+      ctx.fillStyle = `rgba(240,235,255,${a})`;
+      ctx.fillText('Sonsuza düşüyorsun...', VW / 2, VH / 2 - 10);
+      ctx.font = '14px monospace';
+      ctx.fillStyle = `rgba(240,235,255,${a * 0.6})`;
+      ctx.fillText('R: yeniden dene', VW / 2, VH / 2 + 26);
+    }
+  }
+
+  function renderTitle() {
+    const t = game.time;
+    ctx.fillStyle = '#05050a';
+    ctx.fillRect(0, 0, VW, VH);
+    const g = ctx.createRadialGradient(VW / 2, VH / 2 - 40, 10, VW / 2, VH / 2 - 40, 380);
+    g.addColorStop(0, 'rgba(120,90,200,0.25)');
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, VW, VH);
+    ctx.textAlign = 'center';
+    const fade = 0.55 + Math.sin(t * 1.2) * 0.35;
+    ctx.font = '56px Georgia, serif';
+    ctx.fillStyle = `rgba(240,235,255,${fade})`;
+    ctx.fillText('LUCID STATE', VW / 2, VH / 2 - 60);
+    ctx.font = 'italic 18px Georgia, serif';
+    ctx.fillStyle = 'rgba(220,210,255,0.75)';
+    ctx.fillText('Lanetlendin. Her nefeste biraz daha siliniyorsun.', VW / 2, VH / 2 - 20);
+    ctx.font = '14px monospace';
+    ctx.fillStyle = 'rgba(220,210,255,0.55)';
+    const lines = [
+      '←/→ veya A/D: yürü      Boşluk / ↑ / W: zıpla',
+      'Shift / X: atıl      E / ↓: konuş, aynaya dokun',
+      'R: yeniden başla      (sesi aç)',
+    ];
+    lines.forEach((l, i) => ctx.fillText(l, VW / 2, VH / 2 + 40 + i * 22));
+    ctx.fillStyle = `rgba(255,255,255,${0.5 + Math.sin(t * 4) * 0.4})`;
+    ctx.fillText('Başlamak için bir tuşa bas', VW / 2, VH - 60);
+  }
+
+  function roundRect(x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+
+  // ---------------------------------------------------------------- loop
+  let last = performance.now();
+  function frame(now) {
+    const dt = Math.min(1 / 30, (now - last) / 1000);
+    last = now;
+    if (window.__lucid && window.__lucid.manual) { requestAnimationFrame(frame); return; }
+    update(dt);
+    render();
+    for (const k in pressed) pressed[k] = false;
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+
+  // Hooks for automated tests (and curious players with ?debug).
+  window.__lucid = {
+    manual: false,
+    game,
+    get level() { return level; },
+    step(dt) { update(dt); render(); for (const k in pressed) pressed[k] = false; },
+    press(code) { pressed[code] = true; keys[code] = true; },
+    release(code) { keys[code] = false; },
+    start: startGame,
+  };
+})();
+
+</script>
+</body>
+</html>

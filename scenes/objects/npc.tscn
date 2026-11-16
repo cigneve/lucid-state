@@ -1,0 +1,41 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://scripts/objects/npc.gd" id="1_script"]
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_talk"]
+size = Vector2(76, 52)
+
+[node name="Npc" type="Area2D"]
+collision_layer = 2048
+collision_mask = 1024
+script = ExtResource("1_script")
+priority = 10
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+position = Vector2(0, -14)
+shape = SubResource("RectangleShape2D_talk")
+
+[node name="Visual" type="Node2D" parent="."]
+
+[node name="Body" type="Polygon2D" parent="Visual"]
+color = Color(0.012, 0.012, 0.02, 1)
+antialiased = true
+polygon = PackedVector2Array(3, -34, 5.679, -33.467, 7.95, -31.95, 9.467, -29.679, 10, -27, 10, -7, 9.467, -4.321, 7.95, -2.05, 5.679, -0.533, 3, 0, -3, 0, -5.679, -0.533, -7.95, -2.05, -9.467, -4.321, -10, -7, -10, -27, -9.467, -29.679, -7.95, -31.95, -5.679, -33.467, -3, -34)
+
+[node name="EyeL" type="Polygon2D" parent="Visual"]
+color = Color(1, 0.745, 0.353, 0.95)
+polygon = PackedVector2Array(-5, -25, -2, -25, -2, -22, -5, -22)
+
+[node name="EyeR" type="Polygon2D" parent="Visual"]
+color = Color(1, 0.745, 0.353, 0.95)
+polygon = PackedVector2Array(2, -25, 5, -25, 5, -22, 2, -22)
+
+[node name="Prompt" type="Label" parent="."]
+offset_left = -12.0
+offset_top = -64
+offset_right = 12.0
+offset_bottom = -46
+theme_override_colors/font_color = Color(1, 1, 1, 0.85)
+theme_override_font_sizes/font_size = 12
+text = "E"
+horizontal_alignment = 1

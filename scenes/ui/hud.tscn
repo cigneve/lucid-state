@@ -1,0 +1,210 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://scripts/ui/hud.gd" id="1_script"]
+[ext_resource type="Script" path="res://scripts/ui/falling_overlay.gd" id="2_falling"]
+[ext_resource type="GradientTexture2D" path="res://art/vignette.tres" id="3_vignette"]
+[ext_resource type="GradientTexture2D" path="res://art/glow_soft.tres" id="4_soft"]
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_dialogue"]
+bg_color = Color(0.02, 0.016, 0.039, 0.85)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.784, 0.745, 1, 0.35)
+
+[node name="HUD" type="CanvasLayer"]
+script = ExtResource("1_script")
+
+[node name="Vignette" type="TextureRect" parent="."]
+modulate = Color(0, 0, 0, 0.35)
+offset_left = -9.6
+offset_top = -217.6
+offset_right = 969.6
+offset_bottom = 761.6
+mouse_filter = 2
+texture = ExtResource("3_vignette")
+expand_mode = 1
+
+[node name="Flash" type="ColorRect" parent="."]
+offset_right = 960.0
+offset_bottom = 544.0
+mouse_filter = 2
+color = Color(1, 1, 1, 0)
+
+[node name="Falling" type="Control" parent="."]
+offset_right = 960.0
+offset_bottom = 544.0
+mouse_filter = 2
+script = ExtResource("2_falling")
+
+[node name="FormDots" type="Node2D" parent="."]
+
+[node name="Solid" type="Polygon2D" parent="FormDots"]
+position = Vector2(24, 22)
+polygon = PackedVector2Array(4, 0, 3.696, 1.531, 2.828, 2.828, 1.531, 3.696, 0, 4, -1.531, 3.696, -2.828, 2.828, -3.696, 1.531, -4, 0, -3.696, -1.531, -2.828, -2.828, -1.531, -3.696, 0, -4, 1.531, -3.696, 2.828, -2.828, 3.696, -1.531)
+
+[node name="Half" type="Polygon2D" parent="FormDots"]
+position = Vector2(40, 22)
+polygon = PackedVector2Array(4, 0, 3.696, 1.531, 2.828, 2.828, 1.531, 3.696, 0, 4, -1.531, 3.696, -2.828, 2.828, -3.696, 1.531, -4, 0, -3.696, -1.531, -2.828, -2.828, -1.531, -3.696, 0, -4, 1.531, -3.696, 2.828, -2.828, 3.696, -1.531)
+
+[node name="Ghost" type="Polygon2D" parent="FormDots"]
+position = Vector2(56, 22)
+polygon = PackedVector2Array(4, 0, 3.696, 1.531, 2.828, 2.828, 1.531, 3.696, 0, 4, -1.531, 3.696, -2.828, 2.828, -3.696, 1.531, -4, 0, -3.696, -1.531, -2.828, -2.828, -1.531, -3.696, 0, -4, 1.531, -3.696, 2.828, -2.828, 3.696, -1.531)
+
+[node name="MirrorMark" type="Node2D" parent="."]
+visible = false
+position = Vector2(78, 22)
+
+[node name="Ring" type="Line2D" parent="MirrorMark"]
+points = PackedVector2Array(5, 0, 4.755, 1.545, 4.045, 2.939, 2.939, 4.045, 1.545, 4.755, 0, 5, -1.545, 4.755, -2.939, 4.045, -4.045, 2.939, -4.755, 1.545, -5, 0, -4.755, -1.545, -4.045, -2.939, -2.939, -4.045, -1.545, -4.755, 0, -5, 1.545, -4.755, 2.939, -4.045, 4.045, -2.939, 4.755, -1.545)
+closed = true
+width = 1.0
+default_color = Color(0.549, 1, 0.902, 0.6)
+
+[node name="Half" type="Polygon2D" parent="MirrorMark"]
+color = Color(0.549, 1, 0.902, 0.6)
+polygon = PackedVector2Array(0, -5, 1.294, -4.83, 2.5, -4.33, 3.536, -3.536, 4.33, -2.5, 4.83, -1.294, 5, 0, 4.83, 1.294, 4.33, 2.5, 3.536, 3.536, 2.5, 4.33, 1.294, 4.83, 0, 5)
+
+[node name="Debug" type="Label" parent="."]
+offset_left = 100
+offset_top = 12
+offset_right = 700
+offset_bottom = 32
+theme_override_colors/font_color = Color(0.6, 1, 0.6, 1)
+theme_override_font_sizes/font_size = 12
+text = ""
+horizontal_alignment = 0
+
+[node name="Message" type="Label" parent="."]
+offset_left = 0
+offset_top = 486
+offset_right = 960
+offset_bottom = 512
+theme_override_colors/font_color = Color(0.922, 0.902, 1, 1)
+theme_override_font_sizes/font_size = 16
+text = ""
+horizontal_alignment = 1
+
+[node name="Dialogue" type="Panel" parent="."]
+offset_left = 120.0
+offset_top = 424.0
+offset_right = 840.0
+offset_bottom = 514.0
+theme_override_styles/panel = SubResource("StyleBoxFlat_dialogue")
+
+[node name="Speaker" type="Label" parent="Dialogue"]
+offset_left = 20
+offset_top = 10
+offset_right = 700
+offset_bottom = 30
+theme_override_colors/font_color = Color(1, 0.824, 0.549, 0.95)
+theme_override_font_sizes/font_size = 14
+text = "Bekçi"
+horizontal_alignment = 0
+
+[node name="Text" type="Label" parent="Dialogue"]
+offset_left = 20
+offset_top = 34
+offset_right = 700
+offset_bottom = 78
+theme_override_colors/font_color = Color(0.925, 0.91, 1, 1)
+theme_override_font_sizes/font_size = 17
+text = "..."
+horizontal_alignment = 0
+autowrap_mode = 3
+
+[node name="Hint" type="Label" parent="Dialogue"]
+offset_left = 600
+offset_top = 66
+offset_right = 700
+offset_bottom = 84
+theme_override_colors/font_color = Color(1, 1, 1, 0.5)
+theme_override_font_sizes/font_size = 12
+text = "E"
+horizontal_alignment = 2
+
+[node name="EndScreen" type="ColorRect" parent="."]
+offset_right = 960.0
+offset_bottom = 544.0
+mouse_filter = 2
+visible = false
+color = Color(0, 0, 0, 0.6)
+
+[node name="Title" type="Label" parent="EndScreen"]
+offset_left = 0
+offset_top = 230
+offset_right = 960
+offset_bottom = 274
+theme_override_colors/font_color = Color(0.941, 0.922, 1, 1)
+theme_override_font_sizes/font_size = 30
+text = "Bölüm geçildi"
+horizontal_alignment = 1
+
+[node name="Sub" type="Label" parent="EndScreen"]
+offset_left = 0
+offset_top = 283
+offset_right = 960
+offset_bottom = 305
+theme_override_colors/font_color = Color(0.941, 0.922, 1, 1)
+theme_override_font_sizes/font_size = 14
+text = "Boşluk: sonraki bölüm"
+horizontal_alignment = 1
+
+[node name="TitleScreen" type="ColorRect" parent="."]
+offset_right = 960.0
+offset_bottom = 544.0
+mouse_filter = 2
+color = Color(0.02, 0.02, 0.039, 1)
+
+[node name="Glow" type="TextureRect" parent="TitleScreen"]
+modulate = Color(0.471, 0.353, 0.784, 0.25)
+offset_left = 100.0
+offset_top = -148.0
+offset_right = 860.0
+offset_bottom = 612.0
+mouse_filter = 2
+texture = ExtResource("4_soft")
+expand_mode = 1
+
+[node name="Title" type="Label" parent="TitleScreen"]
+offset_left = 0
+offset_top = 150
+offset_right = 960
+offset_bottom = 226
+theme_override_colors/font_color = Color(0.941, 0.922, 1, 1)
+theme_override_font_sizes/font_size = 56
+text = "LUCID STATE"
+horizontal_alignment = 1
+
+[node name="Tagline" type="Label" parent="TitleScreen"]
+offset_left = 0
+offset_top = 233
+offset_right = 960
+offset_bottom = 261
+theme_override_colors/font_color = Color(0.863, 0.824, 1, 0.75)
+theme_override_font_sizes/font_size = 18
+text = "Lanetlendin. Her nefeste biraz daha siliniyorsun."
+horizontal_alignment = 1
+
+[node name="Controls" type="Label" parent="TitleScreen"]
+offset_left = 0
+offset_top = 297
+offset_right = 960
+offset_bottom = 367
+theme_override_colors/font_color = Color(0.863, 0.824, 1, 0.55)
+theme_override_font_sizes/font_size = 14
+text = "Ok tuşları veya A/D: yürü      Boşluk / Yukarı / W: zıpla
+Shift / X: atıl      E / Aşağı: konuş, kullan, aynaya dokun
+R: yeniden başla      (sesi aç)"
+horizontal_alignment = 1
+
+[node name="Start" type="Label" parent="TitleScreen"]
+offset_left = 0
+offset_top = 469
+offset_right = 960
+offset_bottom = 491
+theme_override_colors/font_color = Color(1, 1, 1, 1)
+theme_override_font_sizes/font_size = 14
+text = "Başlamak için bir tuşa bas"
+horizontal_alignment = 1

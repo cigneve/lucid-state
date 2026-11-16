@@ -1,0 +1,21 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://scripts/objects/plate.gd" id="1_script"]
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_tile"]
+size = Vector2(32, 32)
+
+[node name="Plate" type="Area2D"]
+collision_layer = 2048
+collision_mask = 1024
+script = ExtResource("1_script")
+priority = 0
+done_text = "Bir ağırlık yerine oturdu."
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+position = Vector2(0, -16)
+shape = SubResource("RectangleShape2D_tile")
+
+[node name="Pad" type="Polygon2D" parent="."]
+color = Color(1, 0.353, 0.353, 0.8)
+polygon = PackedVector2Array(-12, -6, 12, -6, 12, 0, -12, 0)

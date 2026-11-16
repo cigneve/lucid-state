@@ -1,0 +1,33 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://scripts/objects/zone.gd" id="1_zone"]
+[ext_resource type="GradientTexture2D" path="res://art/glow_bright.tres" id="2_glow"]
+[ext_resource type="CanvasItemMaterial" path="res://art/additive.tres" id="3_add"]
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_zone"]
+size = Vector2(32, 32)
+
+[node name="LightZone" type="Area2D"]
+collision_layer = 4096
+collision_mask = 0
+script = ExtResource("1_zone")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+position = Vector2(16, 16)
+shape = SubResource("RectangleShape2D_zone")
+
+[node name="Tint" type="Polygon2D" parent="."]
+color = Color(1, 0.804, 0.471, 0.07)
+polygon = PackedVector2Array(0, 0, 32, 0, 32, 32, 0, 32)
+
+[node name="Glow" type="Sprite2D" parent="."]
+modulate = Color(1, 0.804, 0.471, 0.45)
+material = ExtResource("3_add")
+position = Vector2(16, 16)
+scale = Vector2(0.45, 0.45)
+texture = ExtResource("2_glow")
+
+[node name="Bulb" type="Polygon2D" parent="."]
+position = Vector2(16, 6)
+color = Color(1, 0.804, 0.471, 0.9)
+polygon = PackedVector2Array(4, 0, 3.696, 1.531, 2.828, 2.828, 1.531, 3.696, 0, 4, -1.531, 3.696, -2.828, 2.828, -3.696, 1.531, -4, 0, -3.696, -1.531, -2.828, -2.828, -1.531, -3.696, 0, -4, 1.531, -3.696, 2.828, -2.828, 3.696, -1.531)

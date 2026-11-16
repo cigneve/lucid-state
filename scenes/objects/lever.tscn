@@ -1,0 +1,36 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://scripts/objects/lever.gd" id="1_script"]
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_tile"]
+size = Vector2(32, 32)
+
+[node name="Lever" type="Area2D"]
+collision_layer = 2048
+collision_mask = 1024
+script = ExtResource("1_script")
+priority = 5
+done_text = "Şalter döndü."
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+position = Vector2(0, -16)
+shape = SubResource("RectangleShape2D_tile")
+
+[node name="Base" type="Polygon2D" parent="."]
+color = Color(0.165, 0.141, 0.2, 1)
+polygon = PackedVector2Array(-8, -8, 8, -8, 8, 0, -8, 0)
+
+[node name="Arm" type="Line2D" parent="."]
+points = PackedVector2Array(0, -6, -9, -24)
+width = 3.0
+default_color = Color(1, 0.784, 0.471, 0.9)
+
+[node name="Prompt" type="Label" parent="."]
+offset_left = -12.0
+offset_top = -58
+offset_right = 12.0
+offset_bottom = -40
+theme_override_colors/font_color = Color(1, 1, 1, 0.85)
+theme_override_font_sizes/font_size = 12
+text = "E"
+horizontal_alignment = 1
